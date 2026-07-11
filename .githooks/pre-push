@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Runs the full unit + contract test suite (tests/contract.rs is a cheap
+# schema-conformance check, no network/runtime needed) plus the 90% coverage
+# gate on core business logic. Thin Workers-runtime glue (src/lib.rs,
+# src/r2_adapter.rs, src/weather_adapter.rs) is excluded from the gate since
+# it can't execute outside a deployed/dev worker; it's covered instead by
+# `wrangler dev` manual checks and the post-deploy smoke test.
+set -euo pipefail
+
+if ! command -v cargo-llvm-cov >/dev/null 2>&1; then
+  echo "error: cargo-llvm-cov not installed. Run: cargo install cargo-llvm-cov --locked" >&2
+  exit 1
+fi
+
+cargo test
+
+cargo llvm-cov \
+  --ignore-filename-regex 'src/(lib|r2_adapter|weather_adapter)\.rs$' \
+  --fail-under-lines 90

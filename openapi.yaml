@@ -1,0 +1,137 @@
+openapi: 3.0.3
+info:
+  title: Hike Club API
+  version: 1.0.0
+  description: Private API serving hike schedule, trail map, meeting point, and weather for a single scout hiking club.
+servers:
+  - url: https://hike-club-api.example.workers.dev
+security:
+  - ApiKeyAuth: []
+paths:
+  /health:
+    get:
+      summary: Liveness check
+      security: []
+      responses:
+        "200":
+          description: Service is up
+          content:
+            text/plain:
+              schema:
+                type: string
+  /hike/{id}:
+    get:
+      summary: Get a single hike's details, map, and weather
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Hike found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HikeResponse"
+        "401":
+          description: Missing or invalid API key
+        "404":
+          description: No hike with that id
+        "502":
+          description: Upstream storage error
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+  schemas:
+    MeetingPoint:
+      type: object
+      required: [lat, lon, googleMapsUrl]
+      properties:
+        lat:
+          type: number
+        lon:
+          type: number
+        googleMapsUrl:
+          type: string
+          format: uri
+    MapRef:
+      type: object
+      required: [url, expiresAt]
+      properties:
+        url:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+    Precipitation:
+      type: object
+      required: [probabilityPct, amountIn]
+      properties:
+        probabilityPct:
+          type: integer
+          minimum: 0
+          maximum: 100
+        amountIn:
+          type: number
+          minimum: 0
+    Alert:
+      type: object
+      required: [type, message]
+      properties:
+        type:
+          type: string
+          enum: [precip, nws_alert, heat_index, wind_chill]
+        message:
+          type: string
+    Weather:
+      type: object
+      required: [temperatureF, conditions, precipitation, alerts]
+      properties:
+        temperatureF:
+          type: number
+        conditions:
+          type: string
+        precipitation:
+          $ref: "#/components/schemas/Precipitation"
+        heatIndexF:
+          type: number
+          nullable: true
+        windChillF:
+          type: number
+          nullable: true
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alert"
+    HikeResponse:
+      type: object
+      required: [id, start, end, meetingPoint, trails, map, weatherAvailable, weather]
+      properties:
+        id:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        meetingPoint:
+          $ref: "#/components/schemas/MeetingPoint"
+        trails:
+          type: array
+          items:
+            type: string
+        map:
+          $ref: "#/components/schemas/MapRef"
+        weatherAvailable:
+          type: boolean
+        weather:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/Weather"

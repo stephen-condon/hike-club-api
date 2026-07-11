@@ -1,0 +1,35 @@
+[package]
+name = "hike-club-api"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock"] }
+console_error_panic_hook = "0.1.7"
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+hex = "0.4.3"
+hmac = "0.13.0"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+sha2 = "0.11.0"
+wasm-bindgen = "=0.2.125"
+worker = "0.8.5"
+worker-macros = "0.8.5"
+
+[dev-dependencies]
+jsonschema = "0.35"
+serde_yaml = "0.9.34"
+tokio = { version = "1.52.3", features = ["macros", "rt"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+# ponytail: no `strip = true` here — it strips the wasm "target_features"
+# custom section that wasm-bindgen needs to detect reference-types support
+# for catch wrappers, which breaks the worker-build pipeline entirely.
+# wasm-bindgen/worker-build's own post-processing already shrinks the final
+# bundle, so stripping this crate's intermediate .wasm isn't needed anyway.
+codegen-units = 1

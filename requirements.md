@@ -1,0 +1,42 @@
+This is going to be a rust-based lightweight API to run as a Cloudflare worker
+
+- CI
+    - semantic versioning-driven releases created
+    - PR & main deploys to the Cloudflare worker
+    - unit/contract/integration testing as required GHA
+- API
+    - OpenAPI v3 spec
+        - Use for contract testing as a precommit hook on the repo
+        - Investigate tooling to autogenerate the spec based on code implementation
+    - 90%+ unit test coverage
+        - In unit tests, isolate all dependencies
+        - Unit tests run as precommit hook
+        - Precommit hook also validates 90%+ coverage
+    - Limited integration testing suite to make calls via top level DNS routing
+    - Use Cases
+        - Get Hike Information
+            - Date/Time start/end
+            - Trail Map (as some kind of image/vector graphic/pdf)
+            - Intended trails to hike (as overlay on top of trail map image)
+            - Start/meeting point GPS location (for Google maps)
+            - Weather predictions
+                - Precipitation
+                - Conditions
+                - Heat Index/Wind Chill
+                - Actual Temp
+                - Alerts on weather
+                    - Any predicted precip in the hike window
+                    - Weather Watches/Warnings
+                    - Heat Index > 85
+                    - Wind Chill < 32
+    - Language: Rust
+    - Avoid frameworks unless the value-add seems very strong
+    - Data: Source from Cloudflare R2 object storage
+        - Need to determine how I want to manage/structure these resources
+            - likely a management app is overkill here
+        - Want to remain in Cloudflare's R2 free usage tier
+    - Access Control: I want the worker just accessible by me, maybe some kind of .env-based api key, ideally filtering unauthed requests out prior to even hitting the worker
+    - Performance
+        - P90 latency 1s
+        - P99 latency 1.5s
+        - Cloudflare free tier only

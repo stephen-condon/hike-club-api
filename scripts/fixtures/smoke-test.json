@@ -1,0 +1,8 @@
+{
+  "id": "smoke-test",
+  "start": "2026-01-01T08:00:00-05:00",
+  "end": "2026-01-01T12:00:00-05:00",
+  "meeting": { "lat": 38.4, "lon": -78.55 },
+  "trails": ["Smoke Test Loop"],
+  "mapKey": "hikes/smoke-test/map.png"
+}

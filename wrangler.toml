@@ -1,0 +1,34 @@
+name = "hike-club-api"
+main = "build/worker/shim.mjs"
+compatibility_date = "2026-07-10"
+
+[build]
+# RUSTFLAGS enables the wasm reference-types feature, required by wasm-bindgen
+# to generate catch wrappers for this version of the worker/wasm-bindgen toolchain.
+command = "cargo install worker-build --version 0.8.5 --locked || true && RUSTFLAGS='-C target-feature=+reference-types' worker-build --release"
+
+[[r2_buckets]]
+binding = "HIKES"
+bucket_name = "hike-club-api"
+
+[vars]
+R2_ACCOUNT_ID = "d1c32a549c7dddaa7c03b13b1d8df178"
+R2_BUCKET_NAME = "hike-club-api"
+
+# Secrets (set via `wrangler secret put <NAME>`, not stored here):
+#   API_KEY               - shared secret the iOS app sends as `x-api-key`
+#   R2_ACCESS_KEY_ID       - R2 API token access key id (for presigning map URLs)
+#   R2_SECRET_ACCESS_KEY   - R2 API token secret access key
+#
+# Preview environment for PR deploys (`wrangler deploy --env preview`).
+# Secrets must also be set per-env: `wrangler secret put API_KEY --env preview`.
+[env.preview]
+name = "hike-club-api-preview"
+
+[[env.preview.r2_buckets]]
+binding = "HIKES"
+bucket_name = "hike-club-api"
+
+[env.preview.vars]
+R2_ACCOUNT_ID = "d1c32a549c7dddaa7c03b13b1d8df178"
+R2_BUCKET_NAME = "hike-club-api"
