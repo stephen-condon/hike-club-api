@@ -31,28 +31,7 @@ jobs:
           command: deploy
 
       - name: Post-deploy smoke test
-        env:
-          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
-          SMOKE_BASE_URL: ${{ secrets.SMOKE_BASE_URL }}
-        run: |
-          set -euo pipefail
-
-          health_status=$(curl -s -o /dev/null -w '%{http_code}' "$SMOKE_BASE_URL/health")
-          if [ "$health_status" != "200" ]; then
-            echo "health check failed: $health_status" >&2
-            exit 1
-          fi
-
-          hike_status=$(curl -s -o /tmp/smoke_response.json -w '%{http_code}' \
-            -H "x-api-key: $SMOKE_API_KEY" \
-            "$SMOKE_BASE_URL/hike/smoke-test")
-          if [ "$hike_status" != "200" ]; then
-            echo "hike smoke test failed: $hike_status" >&2
-            cat /tmp/smoke_response.json >&2
-            exit 1
-          fi
-
-          echo "smoke test passed"
+        run: scripts/smoke-test.sh "${{ secrets.SMOKE_BASE_URL }}" "${{ secrets.SMOKE_API_KEY }}"
 
       # Runs last: only tag/publish a GitHub release once the deploy has
       # actually succeeded and passed its smoke test.
