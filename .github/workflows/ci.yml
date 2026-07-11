@@ -69,6 +69,9 @@ jobs:
     if: github.event_name == 'pull_request'
     needs: test
     runs-on: ubuntu-latest
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
 
@@ -83,3 +86,9 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --env preview
+
+      - name: Post-deploy smoke test
+        env:
+          SMOKE_BASE_URL: ${{ secrets.PREVIEW_SMOKE_BASE_URL }}
+          SMOKE_API_KEY: ${{ secrets.PREVIEW_SMOKE_API_KEY }}
+        run: scripts/smoke-test.sh "$SMOKE_BASE_URL" "$SMOKE_API_KEY"
