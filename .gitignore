@@ -3,4 +3,3 @@
 /node_modules
 /.wrangler
 *.log
-smoke.sh
