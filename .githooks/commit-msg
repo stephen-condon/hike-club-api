@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Lints the commit message against conventional-commit format. Fast local
+# feedback; ci.yml's lint-commits job re-checks the whole PR range too.
+set -euo pipefail
+
+npx --no-install commitlint --edit "$1"
