@@ -88,4 +88,7 @@ jobs:
           command: deploy --env preview
 
       - name: Post-deploy smoke test
-        run: scripts/smoke-test.sh "${{ secrets.PREVIEW_SMOKE_BASE_URL }}" "${{ secrets.PREVIEW_SMOKE_API_KEY }}"
+        env:
+          SMOKE_BASE_URL: ${{ secrets.PREVIEW_SMOKE_BASE_URL }}
+          SMOKE_API_KEY: ${{ secrets.PREVIEW_SMOKE_API_KEY }}
+        run: scripts/smoke-test.sh "$SMOKE_BASE_URL" "$SMOKE_API_KEY"
