@@ -35,10 +35,14 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HikeResponse"
+        "400":
+          description: Missing hike id
         "401":
           description: Missing or invalid API key
         "404":
           description: No hike with that id
+        "500":
+          description: Internal Server Error
         "502":
           description: Upstream storage error
 components:
