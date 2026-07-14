@@ -31,7 +31,10 @@ jobs:
           command: deploy
 
       - name: Post-deploy smoke test
-        run: scripts/smoke-test.sh "${{ secrets.SMOKE_BASE_URL }}" "${{ secrets.SMOKE_API_KEY }}"
+        env:
+          SMOKE_BASE_URL: ${{ secrets.SMOKE_BASE_URL }}
+          SMOKE_API_KEY: ${{ secrets.SMOKE_API_KEY }}
+        run: scripts/smoke-test.sh "$SMOKE_BASE_URL" "$SMOKE_API_KEY"
 
       # Runs last: only tag/publish a GitHub release once the deploy has
       # actually succeeded and passed its smoke test.
