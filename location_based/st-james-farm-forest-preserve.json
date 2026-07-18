@@ -1,0 +1,8 @@
+{
+  "id": "st-james-farm-forest-preserve",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8430, "lon": -88.1490 },
+  "trails": ["St. James Farm Loop (Red)", "Illinois Prairie Path (Green)"],
+  "mapKey": "hikes/st-james-farm-forest-preserve/map.png"
+}

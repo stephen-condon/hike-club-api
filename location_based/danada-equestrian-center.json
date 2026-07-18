@@ -1,0 +1,8 @@
+{
+  "id": "danada-equestrian-center",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8370, "lon": -88.0980 },
+  "trails": ["Danada-Herrick Lake Regional"],
+  "mapKey": "hikes/danada-equestrian-center/map.png"
+}

@@ -1,0 +1,8 @@
+{
+  "id": "lincoln-marsh-natural-area",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8700, "lon": -88.1140 },
+  "trails": ["Lincoln Marsh (Red)", "Illinois Prairie Path (Purple)"],
+  "mapKey": "hikes/lincoln-marsh-natural-area/map.png"
+}
