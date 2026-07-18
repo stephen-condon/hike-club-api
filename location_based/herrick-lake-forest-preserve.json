@@ -1,0 +1,8 @@
+{
+  "id": "herrick-lake-forest-preserve",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8285, "lon": -88.1465 },
+  "trails": ["Danada-Herrick Lake Regional", "Meadowlark", "Bluebird"],
+  "mapKey": "hikes/herrick-lake-forest-preserve/map.png"
+}

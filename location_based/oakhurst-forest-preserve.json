@@ -1,0 +1,8 @@
+{
+  "id": "oakhurst-forest-preserve",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.7530, "lon": -88.2695 },
+  "trails": ["TODO"],
+  "mapKey": "hikes/oakhurst-forest-preserve/map.png"
+}

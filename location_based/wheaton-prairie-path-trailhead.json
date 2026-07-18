@@ -1,0 +1,8 @@
+{
+  "id": "wheaton-prairie-path-trailhead",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8650, "lon": -88.1075 },
+  "trails": ["Illinois Prairie Path"],
+  "mapKey": "hikes/wheaton-prairie-path-trailhead/map.png"
+}

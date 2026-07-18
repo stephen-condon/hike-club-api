@@ -1,0 +1,8 @@
+{
+  "id": "blackwell-forest-preserve",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8480, "lon": -88.1520 },
+  "trails": ["TODO"],
+  "mapKey": "hikes/blackwell-forest-preserve/map.png"
+}

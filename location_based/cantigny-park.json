@@ -1,0 +1,8 @@
+{
+  "id": "cantigny-park",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.8515, "lon": -88.1585 },
+  "trails": ["Purple"],
+  "mapKey": "hikes/cantigny-park/map.png"
+}
