@@ -45,6 +45,22 @@ paths:
           description: Internal Server Error
         "502":
           description: Upstream storage error
+  /hike-locations:
+    get:
+      summary: List short-name to full-name mappings for hike locations
+      responses:
+        "200":
+          description: Location name mappings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HikeLocation"
+        "401":
+          description: Missing or invalid API key
+        "500":
+          description: Internal Server Error
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -52,6 +68,14 @@ components:
       in: header
       name: x-api-key
   schemas:
+    HikeLocation:
+      type: object
+      required: [short_name, full_name]
+      properties:
+        short_name:
+          type: string
+        full_name:
+          type: string
     MeetingPoint:
       type: object
       required: [lat, lon, googleMapsUrl]

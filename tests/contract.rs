@@ -102,3 +102,19 @@ fn response_without_weather_matches_spec() {
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
+
+/// `GET /hike-locations` serves this file verbatim, so nothing else validates
+/// its shape. Guard that it stays a non-empty array of {short_name, full_name}.
+#[test]
+fn hike_location_mapping_is_well_formed() {
+    const MAPPING_JSON: &str = include_str!("../resources/hike-location-mapping.json");
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_str(MAPPING_JSON).expect("mapping must be a JSON array");
+    assert!(!entries.is_empty(), "mapping must not be empty");
+    for entry in &entries {
+        assert!(
+            entry["short_name"].is_string() && entry["full_name"].is_string(),
+            "each entry needs string short_name and full_name: {entry}"
+        );
+    }
+}
