@@ -17,6 +17,10 @@ use r2_adapter::{R2HikeStore, load_r2_config};
 use weather_adapter::NwsWeatherSource;
 use worker::*;
 
+/// Short-name → full-name mapping for the club's forest preserves, embedded at
+/// compile time and served verbatim by `GET /hike-locations`.
+const HIKE_LOCATIONS_JSON: &str = include_str!("../resources/hike-location-mapping.json");
+
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
@@ -27,8 +31,26 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .get_async("/hike/:id", |req, ctx| async move {
             handle_hike(req, ctx).await
         })
+        .get_async("/hike-locations", |req, ctx| async move {
+            handle_hike_locations(req, ctx).await
+        })
         .run(req, env)
         .await
+}
+
+async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    let expected_key = match ctx.env.secret("API_KEY") {
+        Ok(s) => s.to_string(),
+        Err(_) => return Response::error("server misconfigured: API_KEY not set", 500),
+    };
+    let provided = req.headers().get(API_KEY_HEADER).ok().flatten();
+    if !is_authorized(provided.as_deref(), &expected_key) {
+        return Response::error("unauthorized", 401);
+    }
+
+    let mut resp = Response::ok(HIKE_LOCATIONS_JSON)?;
+    resp.headers_mut().set("content-type", "application/json")?;
+    Ok(resp)
 }
 
 async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
