@@ -2,7 +2,7 @@
   "id": "lyman-woods-nature-center",
   "start": "TODO",
   "end": "TODO",
-  "meeting": { "lat": 41.8005, "lon": -88.0170 },
+  "meeting": { "lat": 41.83067443104555, "lon": -88.0079737201438 },
   "trails": ["Brown", "Yellow", "Purple", "Orange"],
   "mapKey": "hikes/lyman-woods-nature-center/map.png"
 }

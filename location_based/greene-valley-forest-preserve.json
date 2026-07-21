@@ -2,7 +2,7 @@
   "id": "greene-valley-forest-preserve",
   "start": "TODO",
   "end": "TODO",
-  "meeting": { "lat": 41.7230, "lon": -88.1080 },
+  "meeting": { "lat": 41.73827644998714, "lon": -88.07480582187644 },
   "trails": ["TODO"],
   "mapKey": "hikes/greene-valley-forest-preserve/map.png"
 }
