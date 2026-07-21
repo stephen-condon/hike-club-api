@@ -2,7 +2,7 @@
   "id": "mcdowell-grove-forest-preserve",
   "start": "TODO",
   "end": "TODO",
-  "meeting": { "lat": 41.7850, "lon": -88.1710 },
+  "meeting": { "lat": 41.79574184650758, "lon": -88.18482547846254 },
   "trails": ["West Branch DuPage River (Red)", "Purple", "Green", "Orange"],
   "mapKey": "hikes/mcdowell-grove-forest-preserve/map.png"
 }

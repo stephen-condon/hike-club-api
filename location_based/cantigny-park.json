@@ -2,7 +2,7 @@
   "id": "cantigny-park",
   "start": "TODO",
   "end": "TODO",
-  "meeting": { "lat": 41.8515, "lon": -88.1585 },
+  "meeting": { "lat": 41.8550260025941, "lon": -88.15216900015005 },
   "trails": ["Purple"],
   "mapKey": "hikes/cantigny-park/map.png"
 }

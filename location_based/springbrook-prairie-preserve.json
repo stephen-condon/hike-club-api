@@ -2,7 +2,7 @@
   "id": "springbrook-prairie-preserve",
   "start": "TODO",
   "end": "TODO",
-  "meeting": { "lat": 41.7060, "lon": -88.1580 },
+  "meeting": { "lat": 41.73474883464701, "lon": -88.19156630674131 },
   "trails": ["TODO"],
   "mapKey": "hikes/springbrook-prairie-preserve/map.png"
 }

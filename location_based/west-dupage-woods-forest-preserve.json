@@ -2,7 +2,7 @@
   "id": "west-dupage-woods-forest-preserve",
   "start": "TODO",
   "end": "TODO",
-  "meeting": { "lat": 41.8700, "lon": -88.2035 },
+  "meeting": { "lat": 41.868157644265246, "lon": -88.19316343833569 },
   "trails": ["Red Oak", "West Branch River"],
   "mapKey": "hikes/west-dupage-woods-forest-preserve/map.png"
 }
