@@ -3,7 +3,10 @@
 //! network, no deployed worker — see the plan's CI section for why the
 //! full-runtime contract exercise is left to the post-deploy smoke test instead.
 
-use hike_club_api::models::{Alert, HikeResponse, MapRef, MeetingPoint, Precipitation, Weather};
+use hike_club_api::models::{
+    Alert, HikeResponse, HikeResponseV2, MapRef, MeetingPoint, Precipitation, PrecipitationV2,
+    Weather, WeatherV2,
+};
 
 const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
 
@@ -30,7 +33,7 @@ fn desugar_nullable(value: &mut serde_json::Value) {
     }
 }
 
-fn hike_response_validator() -> jsonschema::Validator {
+fn validator_for(root: &str) -> jsonschema::Validator {
     let openapi: serde_json::Value =
         serde_json::to_value(serde_yaml::from_str::<serde_yaml::Value>(OPENAPI_YAML).unwrap())
             .unwrap();
@@ -47,11 +50,11 @@ fn hike_response_validator() -> jsonschema::Validator {
 
     let schema = serde_json::json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
-        "$ref": "#/definitions/HikeResponse",
+        "$ref": format!("#/definitions/{root}"),
         "definitions": definitions,
     });
 
-    jsonschema::validator_for(&schema).expect("openapi.yaml HikeResponse schema must compile")
+    jsonschema::validator_for(&schema).expect("openapi.yaml schema must compile")
 }
 
 fn sample_response(weather: Option<Weather>) -> HikeResponse {
@@ -89,7 +92,7 @@ fn sample_weather() -> Weather {
 
 #[test]
 fn response_with_weather_matches_spec() {
-    let validator = hike_response_validator();
+    let validator = validator_for("HikeResponse");
     let instance = serde_json::to_value(sample_response(Some(sample_weather()))).unwrap();
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
@@ -97,8 +100,76 @@ fn response_with_weather_matches_spec() {
 
 #[test]
 fn response_without_weather_matches_spec() {
-    let validator = hike_response_validator();
+    let validator = validator_for("HikeResponse");
     let instance = serde_json::to_value(sample_response(None)).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+}
+
+fn sample_response_v2(weather: Option<WeatherV2>) -> HikeResponseV2 {
+    HikeResponseV2 {
+        id: "2026-07-18-blue-ridge".to_string(),
+        start: "2026-07-18T08:00:00-04:00".to_string(),
+        end: "2026-07-18T12:00:00-04:00".to_string(),
+        meeting_point: MeetingPoint::new(37.6, -79.2),
+        trails: vec!["Blue Ridge Loop".to_string()],
+        map: MapRef {
+            url: "https://example.r2.cloudflarestorage.com/map.png?sig=abc".to_string(),
+            expires_at: "2026-07-18T09:00:00Z".to_string(),
+        },
+        weather_available: weather.is_some(),
+        weather,
+    }
+}
+
+fn sample_weather_v2() -> WeatherV2 {
+    WeatherV2 {
+        start_temp_f: 72.0,
+        end_temp_f: 81.0,
+        conditions: "Partly Cloudy".to_string(),
+        precipitation: PrecipitationV2 {
+            probability_pct: 40,
+            expected: true,
+            starts_at: Some("2026-07-18T06:00:00-04:00".to_string()),
+            ends_at: Some("2026-07-18T09:00:00-04:00".to_string()),
+        },
+        heat_index_f: Some(85.0),
+        wind_chill_f: None,
+        alerts: vec![Alert {
+            kind: "nws_alert".to_string(),
+            message: "Flash Flood Watch".to_string(),
+        }],
+    }
+}
+
+#[test]
+fn v2_response_with_weather_matches_spec() {
+    let validator = validator_for("HikeResponseV2");
+    let instance = serde_json::to_value(sample_response_v2(Some(sample_weather_v2()))).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+}
+
+#[test]
+fn v2_response_without_weather_matches_spec() {
+    let validator = validator_for("HikeResponseV2");
+    let instance = serde_json::to_value(sample_response_v2(None)).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+}
+
+#[test]
+fn v2_precip_timing_nulls_validate() {
+    // expected=false with null timestamps must still satisfy the schema.
+    let validator = validator_for("HikeResponseV2");
+    let mut w = sample_weather_v2();
+    w.precipitation = PrecipitationV2 {
+        probability_pct: 0,
+        expected: false,
+        starts_at: None,
+        ends_at: None,
+    };
+    let instance = serde_json::to_value(sample_response_v2(Some(w))).unwrap();
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
