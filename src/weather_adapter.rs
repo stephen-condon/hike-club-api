@@ -1,8 +1,6 @@
 use crate::weather::{
-    RawForecast, WeatherSource, filter_to_window, forecast_hourly_url, parse_active_alerts,
-    parse_periods,
+    RawForecast, WeatherSource, forecast_hourly_url, parse_active_alerts, parse_periods,
 };
-use chrono::{DateTime, Utc};
 
 const USER_AGENT: &str = "hike-club-api (contact: scondon87@gmail.com)";
 /// ponytail: Cache API only, no KV. Add KV if cross-colo cache sharing matters.
@@ -11,13 +9,7 @@ const CACHE_TTL_SECS: u32 = 600;
 pub struct NwsWeatherSource;
 
 impl WeatherSource for NwsWeatherSource {
-    async fn forecast(
-        &self,
-        lat: f64,
-        lon: f64,
-        window_start: DateTime<Utc>,
-        window_end: DateTime<Utc>,
-    ) -> Result<RawForecast, String> {
+    async fn forecast(&self, lat: f64, lon: f64) -> Result<RawForecast, String> {
         let cache_key = format!(
             "https://cache.internal/weather?lat={:.2}&lon={:.2}",
             lat, lon
@@ -33,7 +25,7 @@ impl WeatherSource for NwsWeatherSource {
         {
             let body = cached.text().await.map_err(|e| e.to_string())?;
             if let Ok(raw) = serde_json::from_str::<RawForecast>(&body) {
-                return Ok(filter_to_window(raw, window_start, window_end));
+                return Ok(raw);
             }
         }
 
@@ -52,7 +44,7 @@ impl WeatherSource for NwsWeatherSource {
             .await
             .map_err(|e| e.to_string())?;
 
-        Ok(filter_to_window(raw, window_start, window_end))
+        Ok(raw)
     }
 }
 
@@ -65,13 +57,10 @@ async fn fetch_nws_forecast(lat: f64, lon: f64) -> Result<RawForecast, String> {
     let periods = parse_periods(&forecast);
 
     let alerts_url = format!("https://api.weather.gov/alerts/active?point={lat:.4},{lon:.4}");
-    let alerts: serde_json::Value = get_json(&alerts_url).await?;
-    let active_alerts = parse_active_alerts(&alerts);
+    let alerts_json: serde_json::Value = get_json(&alerts_url).await?;
+    let alerts = parse_active_alerts(&alerts_json);
 
-    Ok(RawForecast {
-        periods,
-        active_alerts,
-    })
+    Ok(RawForecast { periods, alerts })
 }
 
 async fn get_json(url: &str) -> Result<serde_json::Value, String> {

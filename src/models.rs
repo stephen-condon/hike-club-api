@@ -53,6 +53,39 @@ pub struct Weather {
     pub alerts: Vec<Alert>,
 }
 
+/// v2 precipitation: probability plus *when* precip is expected across the hike's
+/// local calendar day (times may fall before/after the hike window).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PrecipitationV2 {
+    #[serde(rename = "probabilityPct")]
+    pub probability_pct: u8,
+    /// Whether any hour on the hike's calendar day is at/above the "likely" threshold.
+    pub expected: bool,
+    /// RFC 3339 start of the first likely-precip hour (in the hike's local offset), if any.
+    #[serde(rename = "startsAt")]
+    pub starts_at: Option<String>,
+    /// RFC 3339 end of the last likely-precip hour (in the hike's local offset), if any.
+    #[serde(rename = "endsAt")]
+    pub ends_at: Option<String>,
+}
+
+/// v2 weather block: start/end temps, precip timing, alerts filtered to the hike
+/// window. `temperatureF` and the always-zero `amountIn` from v1 are dropped.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeatherV2 {
+    #[serde(rename = "startTempF")]
+    pub start_temp_f: f64,
+    #[serde(rename = "endTempF")]
+    pub end_temp_f: f64,
+    pub conditions: String,
+    pub precipitation: PrecipitationV2,
+    #[serde(rename = "heatIndexF")]
+    pub heat_index_f: Option<f64>,
+    #[serde(rename = "windChillF")]
+    pub wind_chill_f: Option<f64>,
+    pub alerts: Vec<Alert>,
+}
+
 /// Raw hike metadata as stored in R2 at `hikes/{id}.json`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeRecord {
@@ -84,4 +117,20 @@ pub struct HikeResponse {
     #[serde(rename = "weatherAvailable")]
     pub weather_available: bool,
     pub weather: Option<Weather>,
+}
+
+/// The full GET /hike/{id} response under `x-api-version: 2`. Identical to
+/// `HikeResponse` except the weather block is `WeatherV2`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HikeResponseV2 {
+    pub id: String,
+    pub start: String,
+    pub end: String,
+    #[serde(rename = "meetingPoint")]
+    pub meeting_point: MeetingPoint,
+    pub trails: Vec<String>,
+    pub map: MapRef,
+    #[serde(rename = "weatherAvailable")]
+    pub weather_available: bool,
+    pub weather: Option<WeatherV2>,
 }

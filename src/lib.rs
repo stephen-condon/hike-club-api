@@ -8,12 +8,14 @@ mod handler;
 pub mod models;
 mod r2;
 mod r2_adapter;
+pub mod version;
 mod weather;
 mod weather_adapter;
 
 use auth::{API_KEY_HEADER, is_authorized};
-use handler::build_hike_response;
+use handler::{VersionedHike, build_hike_response};
 use r2_adapter::{R2HikeStore, load_r2_config};
+use version::{API_VERSION_HEADER, ApiVersion, parse_version, sunset};
 use weather_adapter::NwsWeatherSource;
 use worker::*;
 
@@ -38,6 +40,31 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .await
 }
 
+/// Reads and validates the `x-api-version` header. `Ok(version)` on success;
+/// `Err(response)` is a ready-to-return 400 for an unsupported version.
+fn negotiate_version(req: &Request) -> std::result::Result<ApiVersion, Response> {
+    let header = req.headers().get(API_VERSION_HEADER).ok().flatten();
+    parse_version(header.as_deref()).map_err(|()| {
+        Response::error("unsupported api version", 400)
+            .unwrap_or_else(|_| Response::empty().unwrap())
+    })
+}
+
+/// Stamps RFC 8594 deprecation headers when the served version is deprecated.
+/// No-op today (no version is deprecated); see `version::sunset`.
+fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response> {
+    if let Some(sunset_date) = sunset(version) {
+        let headers = resp.headers_mut();
+        headers.set("Deprecation", "true")?;
+        headers.set("Sunset", sunset_date)?;
+        headers.set(
+            "Link",
+            "<https://hike-club-api.example.workers.dev/openapi.yaml>; rel=\"deprecation\"",
+        )?;
+    }
+    Ok(resp)
+}
+
 async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),
@@ -48,9 +75,15 @@ async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Re
         return Response::error("unauthorized", 401);
     }
 
+    // Version-independent payload, but still negotiated so a bad version 400s.
+    let version = match negotiate_version(&req) {
+        Ok(v) => v,
+        Err(resp) => return Ok(resp),
+    };
+
     let mut resp = Response::ok(HIKE_LOCATIONS_JSON)?;
     resp.headers_mut().set("content-type", "application/json")?;
-    Ok(resp)
+    with_deprecation(resp, version)
 }
 
 async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
@@ -62,6 +95,11 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     if !is_authorized(provided.as_deref(), &expected_key) {
         return Response::error("unauthorized", 401);
     }
+
+    let version = match negotiate_version(&req) {
+        Ok(v) => v,
+        Err(resp) => return Ok(resp),
+    };
 
     let Some(id) = ctx.param("id") else {
         return Response::error("missing hike id", 400);
@@ -81,8 +119,9 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     };
     let weather_source = NwsWeatherSource;
 
-    match build_hike_response(&store, &weather_source, id).await {
-        Ok(Some(response)) => Response::from_json(&response),
+    match build_hike_response(&store, &weather_source, id, version).await {
+        Ok(Some(VersionedHike::V1(r))) => with_deprecation(Response::from_json(&r)?, version),
+        Ok(Some(VersionedHike::V2(r))) => with_deprecation(Response::from_json(&r)?, version),
         Ok(None) => Response::error("hike not found", 404),
         Err(e) => Response::error(format!("upstream error: {e}"), 502),
     }

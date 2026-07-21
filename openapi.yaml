@@ -22,21 +22,30 @@ paths:
   /hike/{id}:
     get:
       summary: Get a single hike's details, map, and weather
+      description: >
+        The weather block is versioned via the `x-api-version` request header.
+        Version 1 (the default when the header is absent) returns `Weather`;
+        version 2 returns `WeatherV2` (start/end temps, precip timing, alerts
+        filtered to the hike window). A deprecated version's responses carry
+        RFC 8594 `Deprecation`/`Sunset` headers; none is deprecated yet.
       parameters:
         - name: id
           in: path
           required: true
           schema:
             type: string
+        - $ref: "#/components/parameters/ApiVersionHeader"
       responses:
         "200":
           description: Hike found
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/HikeResponse"
+                oneOf:
+                  - $ref: "#/components/schemas/HikeResponse"
+                  - $ref: "#/components/schemas/HikeResponseV2"
         "400":
-          description: Missing hike id
+          description: Missing hike id, or unsupported API version
         "401":
           description: Missing or invalid API key
         "404":
@@ -48,6 +57,8 @@ paths:
   /hike-locations:
     get:
       summary: List short-name to full-name mappings for hike locations
+      parameters:
+        - $ref: "#/components/parameters/ApiVersionHeader"
       responses:
         "200":
           description: Location name mappings
@@ -57,6 +68,8 @@ paths:
                 type: array
                 items:
                   $ref: "#/components/schemas/HikeLocation"
+        "400":
+          description: Unsupported API version
         "401":
           description: Missing or invalid API key
         "500":
@@ -67,6 +80,17 @@ components:
       type: apiKey
       in: header
       name: x-api-key
+  parameters:
+    ApiVersionHeader:
+      name: x-api-version
+      in: header
+      required: false
+      description: >
+        API version to serve. `1` (or absent) → v1; `2` → v2. Any other value
+        returns 400. Absent defaults to v1 for now; a future release may require it.
+      schema:
+        type: string
+        enum: ["1", "2"]
   schemas:
     HikeLocation:
       type: object
@@ -137,6 +161,50 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Alert"
+    PrecipitationV2:
+      type: object
+      required: [probabilityPct, expected]
+      properties:
+        probabilityPct:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Max hourly probability during the hike window.
+        expected:
+          type: boolean
+          description: Whether any hour on the hike's local calendar day is at/above the likely threshold.
+        startsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Start of the first likely-precip hour (may precede the hike).
+        endsAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: End of the last likely-precip hour (may follow the hike).
+    WeatherV2:
+      type: object
+      required: [startTempF, endTempF, conditions, precipitation, alerts]
+      properties:
+        startTempF:
+          type: number
+        endTempF:
+          type: number
+        conditions:
+          type: string
+        precipitation:
+          $ref: "#/components/schemas/PrecipitationV2"
+        heatIndexF:
+          type: number
+          nullable: true
+        windChillF:
+          type: number
+          nullable: true
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alert"
     HikeResponse:
       type: object
       required: [id, start, end, meetingPoint, trails, map, weatherAvailable, weather]
@@ -163,3 +231,29 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/Weather"
+    HikeResponseV2:
+      type: object
+      required: [id, start, end, meetingPoint, trails, map, weatherAvailable, weather]
+      properties:
+        id:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        meetingPoint:
+          $ref: "#/components/schemas/MeetingPoint"
+        trails:
+          type: array
+          items:
+            type: string
+        map:
+          $ref: "#/components/schemas/MapRef"
+        weatherAvailable:
+          type: boolean
+        weather:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/WeatherV2"
