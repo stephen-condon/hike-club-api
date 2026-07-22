@@ -23,11 +23,12 @@ paths:
     get:
       summary: Get a single hike's details, map, and weather
       description: >
-        The weather block is versioned via the `x-api-version` request header.
-        Version 1 (the default when the header is absent) returns `Weather`;
-        version 2 returns `WeatherV2` (start/end temps, precip timing, alerts
-        filtered to the hike window). A deprecated version's responses carry
-        RFC 8594 `Deprecation`/`Sunset` headers; none is deprecated yet.
+        The weather block is versioned via the required `x-api-version` request
+        header. Version 1 returns `Weather`; version 2 returns `WeatherV2`
+        (start/end temps, precip timing, alerts filtered to the hike window).
+        v1 is deprecated (sunset 2026-08-20) — its responses carry RFC 8594
+        `Deprecation`/`Sunset` headers; use v2. A missing or unsupported version
+        returns 400.
       parameters:
         - name: id
           in: path
@@ -45,7 +46,7 @@ paths:
                   - $ref: "#/components/schemas/HikeResponse"
                   - $ref: "#/components/schemas/HikeResponseV2"
         "400":
-          description: Missing hike id, or unsupported API version
+          description: Missing hike id, or missing/unsupported API version
         "401":
           description: Missing or invalid API key
         "404":
@@ -69,7 +70,7 @@ paths:
                 items:
                   $ref: "#/components/schemas/HikeLocation"
         "400":
-          description: Unsupported API version
+          description: Missing or unsupported API version
         "401":
           description: Missing or invalid API key
         "500":
@@ -84,10 +85,10 @@ components:
     ApiVersionHeader:
       name: x-api-version
       in: header
-      required: false
+      required: true
       description: >
-        API version to serve. `1` (or absent) → v1; `2` → v2. Any other value
-        returns 400. Absent defaults to v1 for now; a future release may require it.
+        API version to serve. `1` → v1 (deprecated, sunset 2026-08-20); `2` → v2.
+        The header is required; a missing or otherwise unsupported value returns 400.
       schema:
         type: string
         enum: ["1", "2"]
@@ -123,6 +124,7 @@ components:
           format: date-time
     Precipitation:
       type: object
+      deprecated: true
       required: [probabilityPct, amountIn]
       properties:
         probabilityPct:
@@ -143,6 +145,7 @@ components:
           type: string
     Weather:
       type: object
+      deprecated: true
       required: [temperatureF, conditions, precipitation, alerts]
       properties:
         temperatureF:
@@ -207,6 +210,7 @@ components:
             $ref: "#/components/schemas/Alert"
     HikeResponse:
       type: object
+      deprecated: true
       required: [id, start, end, meetingPoint, trails, map, weatherAvailable, weather]
       properties:
         id:

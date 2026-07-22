@@ -12,26 +12,24 @@ pub enum ApiVersion {
 }
 
 /// Resolve the requested version from the raw header value.
-/// - Missing header → `V1`. ponytail: default-to-v1 for now; to require the
-///   header later, change this one arm to `return Err(())`.
+/// - Missing header → `Err`. The header is required; callers map `Err` to 400.
 /// - `"1"` → V1, `"2"` → V2.
 /// - Anything else (unknown version, non-integer) → `Err`, which callers map to 400.
 #[allow(clippy::result_unit_err)] // unit error is sufficient; caller maps it to a 400
 pub fn parse_version(header: Option<&str>) -> Result<ApiVersion, ()> {
     match header {
-        None => Ok(ApiVersion::V1),
         Some("1") => Ok(ApiVersion::V1),
         Some("2") => Ok(ApiVersion::V2),
-        Some(_) => Err(()),
+        None | Some(_) => Err(()),
     }
 }
 
 /// Deprecation registry: the sunset date (RFC 8594 `Sunset` header value, an
-/// HTTP-date) for a version, or `None` if it isn't deprecated. Nothing is
-/// deprecated yet — to sunset v1, return `Some("<HTTP-date>")` for `V1`.
+/// HTTP-date) for a version, or `None` if it isn't deprecated. v1 is deprecated
+/// with a sunset of 2026-08-20; v2 is current.
 pub fn sunset(version: ApiVersion) -> Option<&'static str> {
     match version {
-        ApiVersion::V1 => None,
+        ApiVersion::V1 => Some("Thu, 20 Aug 2026 00:00:00 GMT"),
         ApiVersion::V2 => None,
     }
 }
@@ -41,8 +39,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_header_defaults_to_v1() {
-        assert_eq!(parse_version(None), Ok(ApiVersion::V1));
+    fn missing_header_is_rejected() {
+        assert_eq!(parse_version(None), Err(()));
     }
 
     #[test]
@@ -59,8 +57,11 @@ mod tests {
     }
 
     #[test]
-    fn no_version_is_deprecated_yet() {
-        assert!(sunset(ApiVersion::V1).is_none());
+    fn v1_is_deprecated() {
+        assert_eq!(
+            sunset(ApiVersion::V1),
+            Some("Thu, 20 Aug 2026 00:00:00 GMT")
+        );
         assert!(sunset(ApiVersion::V2).is_none());
     }
 }
