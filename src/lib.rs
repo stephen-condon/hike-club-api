@@ -51,7 +51,7 @@ fn negotiate_version(req: &Request) -> std::result::Result<ApiVersion, Response>
 }
 
 /// Stamps RFC 8594 deprecation headers when the served version is deprecated.
-/// No-op today (no version is deprecated); see `version::sunset`.
+/// v1 responses carry these; v2 responses don't. See `version::sunset`.
 fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response> {
     if let Some(sunset_date) = sunset(version) {
         let headers = resp.headers_mut();
@@ -59,7 +59,7 @@ fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response>
         headers.set("Sunset", sunset_date)?;
         headers.set(
             "Link",
-            "<https://hike-club-api.example.workers.dev/openapi.yaml>; rel=\"deprecation\"",
+            "<https://hike-club-api.scondon87.workers.dev/openapi.yaml>; rel=\"deprecation\"",
         )?;
     }
     Ok(resp)

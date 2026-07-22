@@ -24,6 +24,7 @@ fi
 
 hike_status=$(curl -s -o "$response_file" -w '%{http_code}' \
   -H "x-api-key: $api_key" \
+  -H "x-api-version: 2" \
   "$base_url/hike/smoke-test")
 if [ "$hike_status" != "200" ]; then
   echo "hike smoke test failed: $hike_status" >&2
