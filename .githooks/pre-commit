@@ -2,5 +2,10 @@
 # Fast-only checks: formatting + lint. Tests and coverage run at pre-push instead.
 set -euo pipefail
 
-cargo fmt --check
+# Autofix formatting, then re-stage the .rs files that were already staged so the
+# fix lands in this commit instead of failing it.
+staged_rs=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+cargo fmt
+[ -n "$staged_rs" ] && git add -- $staged_rs
+
 cargo clippy --all-targets -- -D warnings
