@@ -3,9 +3,10 @@
 set -euo pipefail
 
 # Autofix formatting, then re-stage the .rs files that were already staged so the
-# fix lands in this commit instead of failing it.
-staged_rs=$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')
+# fix lands in this commit instead of failing it. NUL-delimited + quoted so paths
+# with spaces are safe and nothing glob-expands.
 cargo fmt
-[ -n "$staged_rs" ] && git add -- $staged_rs
+git diff --cached --name-only -z --diff-filter=ACM -- '*.rs' \
+  | while IFS= read -r -d '' f; do git add -- "$f"; done
 
 cargo clippy --all-targets -- -D warnings
