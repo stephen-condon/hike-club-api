@@ -153,6 +153,13 @@ pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, 
         .ok_or_else(|| "NWS observation-stations response has no stations".to_string())
 }
 
+/// Formats an instant for the NWS `/observations?start=&end=` query. Must use the
+/// `Z` form: the `+00:00` that `to_rfc3339()` emits has an unencoded `+` that NWS
+/// decodes as a space, yielding a 400 and (best-effort) no observed weather.
+pub(crate) fn nws_query_time(t: DateTime<Utc>) -> String {
+    t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
 /// Celsius -> Fahrenheit.
 fn c_to_f(c: f64) -> f64 {
     c * 9.0 / 5.0 + 32.0
@@ -744,6 +751,15 @@ mod tests {
         assert!(events.contains(&"Overlaps"));
         assert!(events.contains(&"Open ended"));
         assert!(!events.contains(&"Before hike"));
+    }
+
+    #[test]
+    fn nws_query_time_uses_z_not_plus_offset() {
+        // NWS 400s on the +00:00 form (the + decodes to a space in the query).
+        let t: DateTime<Utc> = "2026-07-25T13:00:00Z".parse().unwrap();
+        let s = nws_query_time(t);
+        assert_eq!(s, "2026-07-25T13:00:00Z");
+        assert!(!s.contains('+'), "query time must not contain '+': {s}");
     }
 
     #[test]
