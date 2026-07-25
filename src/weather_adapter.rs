@@ -1,6 +1,6 @@
 use crate::weather::{
-    RawForecast, WeatherSource, first_station_url, forecast_hourly_url, observation_stations_url,
-    parse_active_alerts, parse_observations, parse_periods,
+    RawForecast, WeatherSource, first_station_url, forecast_hourly_url, nws_query_time,
+    observation_stations_url, parse_active_alerts, parse_observations, parse_periods,
 };
 use chrono::{DateTime, Utc};
 
@@ -101,8 +101,8 @@ async fn fetch_nws_observations(
 
     let obs_url = format!(
         "{station_url}/observations?start={}&end={}",
-        start.to_rfc3339(),
-        end.to_rfc3339()
+        nws_query_time(start),
+        nws_query_time(end)
     );
     let obs: serde_json::Value = get_json(&obs_url).await?;
 
