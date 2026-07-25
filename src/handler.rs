@@ -35,7 +35,7 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     let end = end_local.to_utc();
 
     let forecast = weather_source
-        .forecast(record.meeting.lat, record.meeting.lon)
+        .forecast(record.meeting.lat, record.meeting.lon, start, end)
         .await;
     let raw = forecast.as_ref().ok();
 
@@ -108,7 +108,13 @@ mod tests {
     }
 
     impl WeatherSource for FixtureWeather {
-        async fn forecast(&self, _lat: f64, _lon: f64) -> Result<RawForecast, String> {
+        async fn forecast(
+            &self,
+            _lat: f64,
+            _lon: f64,
+            _start: chrono::DateTime<chrono::Utc>,
+            _end: chrono::DateTime<chrono::Utc>,
+        ) -> Result<RawForecast, String> {
             self.result.clone()
         }
     }

@@ -35,9 +35,16 @@ pub struct RawForecast {
 /// Abstraction over the weather backend so handlers can be unit-tested without
 /// network. Real impl (`NwsWeatherSource`) calls api.weather.gov; tests use fixtures.
 pub trait WeatherSource {
-    /// Fetches the point's *full* forecast (all hourly periods + active alerts);
-    /// builders narrow to the hike window themselves.
-    async fn forecast(&self, lat: f64, lon: f64) -> Result<RawForecast, String>;
+    /// Fetches weather covering the hike `[start, end]` window: the forecast for
+    /// upcoming hikes, or actual observations for completed (past) ones. Returns
+    /// the *full* set of periods + alerts; builders narrow to the window themselves.
+    async fn forecast(
+        &self,
+        lat: f64,
+        lon: f64,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<RawForecast, String>;
 }
 
 /// Periods overlapping `[start, end]`, borrowed from the full forecast.
@@ -126,6 +133,85 @@ fn parse_alert_time(
 /// NWS windSpeed is a string like "10 mph" or "10 to 20 mph"; take the first number.
 fn parse_wind_mph(raw: &str) -> Option<f64> {
     raw.split_whitespace().next()?.parse().ok()
+}
+
+/// Pure parsing of NWS `/points/{lat},{lon}` response -> the observation-stations
+/// list URL (used to find the nearest reporting station for past hikes).
+pub(crate) fn observation_stations_url(points: &serde_json::Value) -> Result<String, String> {
+    points["properties"]["observationStations"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "NWS points response missing observationStations".to_string())
+}
+
+/// Pure parsing of an NWS observation-stations response -> the nearest station's
+/// URL. Stations come proximity-ordered, so `features[0].id` is closest.
+pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, String> {
+    stations["features"][0]["id"]
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| "NWS observation-stations response has no stations".to_string())
+}
+
+/// Celsius -> Fahrenheit.
+fn c_to_f(c: f64) -> f64 {
+    c * 9.0 / 5.0 + 32.0
+}
+
+/// NWS observation windSpeed comes in SI units tagged by `unitCode`. Convert to
+/// mph; default to km/h (the NWS default) when the code is unrecognized.
+fn wind_to_mph(value: f64, unit_code: &str) -> f64 {
+    if unit_code.contains("m_s") {
+        value * 2.236936
+    } else {
+        // km_h-1 (NWS default) and anything unexpected.
+        value / 1.609344
+    }
+}
+
+/// Pure parsing of an NWS station `/observations` response into our internal
+/// `RawPeriod` shape, so the existing builders treat observed weather exactly
+/// like forecast periods. Each observation is a point-in-time reading; we give it
+/// a 1-hour span (obs are ~hourly) so `periods_in_window` includes readings that
+/// bracket the hike window. Observations missing a temperature are dropped, same
+/// as `parse_periods` drops incomplete forecast periods.
+pub(crate) fn parse_observations(obs: &serde_json::Value) -> Vec<RawPeriod> {
+    let mut periods: Vec<RawPeriod> = obs["features"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| {
+            let props = &f["properties"];
+            let start = DateTime::parse_from_rfc3339(props["timestamp"].as_str()?)
+                .ok()?
+                .with_timezone(&Utc);
+            let temp_c = props["temperature"]["value"].as_f64()?;
+            let wind_mph = props["windSpeed"]["value"]
+                .as_f64()
+                .map(|v| wind_to_mph(v, props["windSpeed"]["unitCode"].as_str().unwrap_or("")));
+            // precipitationLastHour is often null (no precip); treat >0 as observed rain.
+            let precip_prob_pct = match props["precipitationLastHour"]["value"].as_f64() {
+                Some(mm) if mm > 0.0 => 100,
+                _ => 0,
+            };
+            Some(RawPeriod {
+                start,
+                end: start + chrono::Duration::hours(1),
+                temp_f: c_to_f(temp_c),
+                humidity_pct: props["relativeHumidity"]["value"].as_f64(),
+                wind_mph,
+                precip_prob_pct,
+                short_forecast: props["textDescription"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string(),
+            })
+        })
+        .collect();
+    // NWS returns observations newest-first; the builders expect ascending time
+    // (first period = hike start), so sort to match forecast-period ordering.
+    periods.sort_by_key(|p| p.start);
+    periods
 }
 
 /// precip probability above which we call it "predicted" for the v1 alert rule.
@@ -658,6 +744,125 @@ mod tests {
         assert!(events.contains(&"Overlaps"));
         assert!(events.contains(&"Open ended"));
         assert!(!events.contains(&"Before hike"));
+    }
+
+    #[test]
+    fn observation_stations_url_extracts_from_points_response() {
+        let points = serde_json::json!({
+            "properties": { "observationStations": "https://api.weather.gov/gridpoints/LWX/1,1/stations" }
+        });
+        assert_eq!(
+            observation_stations_url(&points).unwrap(),
+            "https://api.weather.gov/gridpoints/LWX/1,1/stations"
+        );
+        assert!(observation_stations_url(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn first_station_url_takes_nearest() {
+        let stations = serde_json::json!({
+            "features": [
+                { "id": "https://api.weather.gov/stations/KDPA" },
+                { "id": "https://api.weather.gov/stations/KORD" }
+            ]
+        });
+        assert_eq!(
+            first_station_url(&stations).unwrap(),
+            "https://api.weather.gov/stations/KDPA"
+        );
+        assert!(first_station_url(&serde_json::json!({ "features": [] })).is_err());
+    }
+
+    #[test]
+    fn parse_observations_reads_real_nws_shape_and_converts_units() {
+        let obs = serde_json::json!({
+            "features": [{
+                "properties": {
+                    "timestamp": "2026-07-18T13:53:00+00:00",
+                    "temperature": { "value": 25.0, "unitCode": "wmoUnit:degC" },
+                    "relativeHumidity": { "value": 60.0 },
+                    "windSpeed": { "value": 16.09344, "unitCode": "wmoUnit:km_h-1" },
+                    "textDescription": "Mostly Cloudy",
+                    "precipitationLastHour": { "value": 2.5, "unitCode": "wmoUnit:mm" }
+                }
+            }]
+        });
+        let periods = parse_observations(&obs);
+        assert_eq!(periods.len(), 1);
+        assert_eq!(periods[0].temp_f, 77.0); // 25C -> 77F
+        assert_eq!(periods[0].humidity_pct, Some(60.0));
+        assert_eq!(periods[0].wind_mph, Some(10.0)); // 16.09344 km/h -> 10 mph
+        assert_eq!(periods[0].short_forecast, "Mostly Cloudy");
+        assert_eq!(periods[0].precip_prob_pct, 100); // rain observed
+        // 1-hour span so periods_in_window includes obs bracketing the hike window.
+        assert_eq!(
+            periods[0].end - periods[0].start,
+            chrono::Duration::hours(1)
+        );
+    }
+
+    #[test]
+    fn parse_observations_handles_ms_wind_and_no_precip() {
+        let obs = serde_json::json!({
+            "features": [{
+                "properties": {
+                    "timestamp": "2026-07-18T13:53:00+00:00",
+                    "temperature": { "value": 0.0, "unitCode": "wmoUnit:degC" },
+                    "windSpeed": { "value": 10.0, "unitCode": "wmoUnit:m_s-1" },
+                    "textDescription": "Clear",
+                    "precipitationLastHour": { "value": null }
+                }
+            }]
+        });
+        let periods = parse_observations(&obs);
+        assert_eq!(periods[0].temp_f, 32.0);
+        assert!((periods[0].wind_mph.unwrap() - 22.369).abs() < 0.01); // 10 m/s -> ~22.37 mph
+        assert_eq!(periods[0].precip_prob_pct, 0);
+        assert_eq!(periods[0].humidity_pct, None);
+    }
+
+    #[test]
+    fn parse_observations_drops_readings_missing_temperature() {
+        let obs = serde_json::json!({
+            "features": [{ "properties": { "timestamp": "2026-07-18T13:53:00+00:00" } }]
+        });
+        assert!(parse_observations(&obs).is_empty());
+        assert!(parse_observations(&serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn observations_flow_through_the_v2_builder() {
+        // End-to-end: observed periods drive the same builder past hikes will use.
+        // Fixture is newest-first (as the real NWS API returns), so this also
+        // guards the ascending sort that keeps start/end temps correct.
+        let obs = serde_json::json!({
+            "features": [
+                { "properties": {
+                    "timestamp": "2026-07-18T10:00:00+00:00",
+                    "temperature": { "value": 25.0, "unitCode": "wmoUnit:degC" },
+                    "relativeHumidity": { "value": 50.0 },
+                    "windSpeed": { "value": 8.0, "unitCode": "wmoUnit:km_h-1" },
+                    "textDescription": "Cloudy",
+                    "precipitationLastHour": { "value": null }
+                } },
+                { "properties": {
+                    "timestamp": "2026-07-18T08:00:00+00:00",
+                    "temperature": { "value": 20.0, "unitCode": "wmoUnit:degC" },
+                    "relativeHumidity": { "value": 50.0 },
+                    "windSpeed": { "value": 8.0, "unitCode": "wmoUnit:km_h-1" },
+                    "textDescription": "Sunny",
+                    "precipitationLastHour": { "value": null }
+                } }
+            ]
+        });
+        let raw = RawForecast {
+            periods: parse_observations(&obs),
+            alerts: vec![],
+        };
+        let w = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        assert_eq!(w.start_temp_f, 68.0); // 20C
+        assert_eq!(w.end_temp_f, 77.0); // 25C
+        assert_eq!(w.conditions, "Sunny");
     }
 
     #[test]
