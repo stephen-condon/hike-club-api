@@ -61,11 +61,23 @@ async fn cached(
     {
         let body = hit.text().await.map_err(|e| e.to_string())?;
         if let Ok(raw) = serde_json::from_str::<RawForecast>(&body) {
-            return Ok(raw);
+            // An empty cached entry is a non-answer (past upstream gap/error),
+            // not "no weather" — treat it as a miss and refetch, which also
+            // self-heals any such entry cached before this guard existed.
+            if !raw.periods.is_empty() {
+                return Ok(raw);
+            }
         }
     }
 
     let raw = fetch.await?;
+
+    // Don't cache a periodless result: it's an upstream gap, not authoritative
+    // "no weather". Caching it would suppress weather for the whole TTL; instead
+    // let the next request retry.
+    if raw.periods.is_empty() {
+        return Ok(raw);
+    }
 
     let body = serde_json::to_string(&raw).map_err(|e| e.to_string())?;
     let headers = worker::Headers::new();
@@ -145,5 +157,13 @@ async fn get_json(url: &str) -> Result<serde_json::Value, String> {
         .send()
         .await
         .map_err(|e| e.to_string())?;
+    // NWS error responses (e.g. a 400) still carry a JSON body. Without this
+    // check we'd parse that error body as data — an empty forecast — and cache
+    // it as if it were real, so a transient upstream failure would suppress
+    // weather for a full TTL. Fail instead, so the caller doesn't cache it.
+    let status = response.status_code();
+    if status >= 400 {
+        return Err(format!("{url} returned HTTP {status}"));
+    }
     response.json().await.map_err(|e| e.to_string())
 }
