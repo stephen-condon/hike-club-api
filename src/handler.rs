@@ -129,7 +129,7 @@ mod tests {
 
     fn sample_record() -> HikeRecord {
         HikeRecord {
-            id: "2026-07-18-blue-ridge".to_string(),
+            id: "blue-ridge".to_string(),
             start: "2026-07-18T08:00:00-04:00".to_string(),
             end: "2026-07-18T12:00:00-04:00".to_string(),
             meeting: MeetingCoords {
@@ -137,7 +137,7 @@ mod tests {
                 lon: -79.2,
             },
             trails: vec!["Blue Ridge Loop".to_string()],
-            map_key: "hikes/2026-07-18-blue-ridge/map.png".to_string(),
+            map_key: "hikes/blue-ridge/map.png".to_string(),
         }
     }
 
@@ -184,7 +184,7 @@ mod tests {
             .unwrap());
         assert!(!response.weather_available);
         assert!(response.weather.is_none());
-        assert_eq!(response.id, "2026-07-18-blue-ridge");
+        assert_eq!(response.id, "blue-ridge");
     }
 
     #[tokio::test]

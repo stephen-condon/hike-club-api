@@ -86,7 +86,10 @@ pub struct WeatherV2 {
     pub alerts: Vec<Alert>,
 }
 
-/// Raw hike metadata as stored in R2 at `hikes/{id}.json`.
+/// Raw hike metadata as stored in R2 at `hikes/{id}.json`, where `id` is the
+/// location slug (`short_name` in `resources/hike-location-mapping.json`) with no
+/// date component — one record per location, rewritten in place when that location
+/// is next scheduled. `start`/`end` are the only source of the hike's date.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeRecord {
     pub id: String,

@@ -33,8 +33,15 @@ paths:
         - name: id
           in: path
           required: true
+          description: >
+            The hike's location slug — a `shortName` from `GET /hike-locations`.
+            Ids carry no date: there is one record per location, updated in place
+            when that location is next scheduled, so a `/hike/{id}` link stays
+            valid across reschedules. The hike's date is `start`/`end` in the
+            response.
           schema:
             type: string
+          example: danada-equestrian-center
         - $ref: "#/components/parameters/ApiVersionHeader"
       responses:
         "200":

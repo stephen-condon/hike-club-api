@@ -120,17 +120,17 @@ mod tests {
     #[test]
     fn hike_record_parses_from_expected_r2_json_shape() {
         let json = r#"{
-            "id": "2026-07-18-blue-ridge",
+            "id": "blue-ridge",
             "start": "2026-07-18T08:00:00-04:00",
             "end": "2026-07-18T12:00:00-04:00",
             "meeting": { "lat": 37.6, "lon": -79.2 },
             "trails": ["Blue Ridge Loop"],
-            "mapKey": "hikes/2026-07-18-blue-ridge/map.png"
+            "mapKey": "hikes/blue-ridge/map.png"
         }"#;
         let record: HikeRecord = serde_json::from_str(json).unwrap();
-        assert_eq!(record.id, "2026-07-18-blue-ridge");
+        assert_eq!(record.id, "blue-ridge");
         assert_eq!(record.meeting.lat, 37.6);
-        assert_eq!(record.map_key, "hikes/2026-07-18-blue-ridge/map.png");
+        assert_eq!(record.map_key, "hikes/blue-ridge/map.png");
         assert_eq!(record.trails, vec!["Blue Ridge Loop".to_string()]);
     }
 
@@ -141,12 +141,14 @@ mod tests {
             now,
             "myaccount",
             "hike-club",
-            "hikes/2026-07-18-blue-ridge/map.png",
+            "hikes/blue-ridge/map.png",
             "AKIDEXAMPLE",
             "secretkey",
             3600,
         );
-        assert!(url.starts_with("https://myaccount.r2.cloudflarestorage.com/hike-club/hikes/2026-07-18-blue-ridge/map.png?"));
+        assert!(url.starts_with(
+            "https://myaccount.r2.cloudflarestorage.com/hike-club/hikes/blue-ridge/map.png?"
+        ));
         assert!(url.contains("X-Amz-Algorithm=AWS4-HMAC-SHA256"));
         assert!(url.contains("X-Amz-Expires=3600"));
         assert!(url.contains("X-Amz-Signature="));
