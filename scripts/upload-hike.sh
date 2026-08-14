@@ -3,17 +3,27 @@
 #
 # Usage: scripts/upload-hike.sh <hike-id> <metadata.json> <map.png>
 #
+# <hike-id> is the location slug — the "short_name" in
+# resources/hike-location-mapping.json, matching a file stem in location_based/.
+# No date component: one record per location, overwritten each time that location
+# is scheduled. That keeps /hike/{id} links permanent across reschedules.
+#
 # <metadata.json> must match HikeRecord in src/models.rs, e.g.:
 #   {
-#     "id": "2026-07-18-blue-ridge",
+#     "id": "blue-ridge",
 #     "start": "2026-07-18T08:00:00-04:00",
 #     "end": "2026-07-18T12:00:00-04:00",
 #     "meeting": { "lat": 37.6, "lon": -79.2 },
 #     "trails": ["Blue Ridge Loop"],
-#     "mapKey": "hikes/2026-07-18-blue-ridge/map.png"
+#     "mapKey": "hikes/blue-ridge/map.png"
 #   }
 # "mapKey" must equal "hikes/<hike-id>/map.png" so it matches where this
 # script uploads the image.
+#
+# Since the id no longer carries the date, "start"/"end" are the ONLY record of
+# when the hike happens — set them to the upcoming date before every upload. A
+# record left with a past "end" makes the API serve observed weather for the last
+# hike as though it were the current one.
 
 set -euo pipefail
 

@@ -3,3 +3,4 @@
 /node_modules
 /.wrangler
 *.log
+/r2-backup-*

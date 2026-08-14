@@ -59,7 +59,7 @@ fn validator_for(root: &str) -> jsonschema::Validator {
 
 fn sample_response(weather: Option<Weather>) -> HikeResponse {
     HikeResponse {
-        id: "2026-07-18-blue-ridge".to_string(),
+        id: "blue-ridge".to_string(),
         start: "2026-07-18T08:00:00-04:00".to_string(),
         end: "2026-07-18T12:00:00-04:00".to_string(),
         meeting_point: MeetingPoint::new(37.6, -79.2),
@@ -108,7 +108,7 @@ fn response_without_weather_matches_spec() {
 
 fn sample_response_v2(weather: Option<WeatherV2>) -> HikeResponseV2 {
     HikeResponseV2 {
-        id: "2026-07-18-blue-ridge".to_string(),
+        id: "blue-ridge".to_string(),
         start: "2026-07-18T08:00:00-04:00".to_string(),
         end: "2026-07-18T12:00:00-04:00".to_string(),
         meeting_point: MeetingPoint::new(37.6, -79.2),
