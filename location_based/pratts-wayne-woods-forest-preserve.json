@@ -1,0 +1,8 @@
+{
+  "id": "pratts-wayne-woods-forest-preserve",
+  "start": "TODO",
+  "end": "TODO",
+  "meeting": { "lat": 41.96820012540542, "lon": -88.24079246861736 },
+  "trails": ["Lake", "West"],
+  "mapKey": "hikes/pratts-wayne-woods-forest-preserve/map.png"
+}
