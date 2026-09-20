@@ -42,6 +42,7 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
 /// Reads and validates the `x-api-version` header. `Ok(version)` on success;
 /// `Err(response)` is a ready-to-return 400 for an unsupported version.
+// @spec API-VER-001, API-VER-002
 fn negotiate_version(req: &Request) -> std::result::Result<ApiVersion, Response> {
     let header = req.headers().get(API_VERSION_HEADER).ok().flatten();
     parse_version(header.as_deref()).map_err(|()| {
@@ -52,6 +53,7 @@ fn negotiate_version(req: &Request) -> std::result::Result<ApiVersion, Response>
 
 /// Stamps RFC 8594 deprecation headers when the served version is deprecated.
 /// v1 responses carry these; v2 responses don't. See `version::sunset`.
+// @spec API-VER-006, API-VER-007
 fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response> {
     if let Some(sunset_date) = sunset(version) {
         let headers = resp.headers_mut();
@@ -65,6 +67,7 @@ fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response>
     Ok(resp)
 }
 
+// @spec API-AUTH-002, API-VER-003, API-LOC-001, API-LOC-002, API-LOC-003
 async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),
@@ -86,6 +89,7 @@ async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Re
     with_deprecation(resp, version)
 }
 
+// @spec API-ROUTE-001, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
 async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),

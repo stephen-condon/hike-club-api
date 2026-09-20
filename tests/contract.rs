@@ -142,6 +142,7 @@ fn sample_weather_v2() -> WeatherV2 {
     }
 }
 
+// @spec API-WIRE-001, API-WIRE-003, API-WIRE-007
 #[test]
 fn v2_response_with_weather_matches_spec() {
     let validator = validator_for("HikeResponseV2");
@@ -150,6 +151,7 @@ fn v2_response_with_weather_matches_spec() {
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
 
+// @spec API-RESP-005, API-WIRE-007
 #[test]
 fn v2_response_without_weather_matches_spec() {
     let validator = validator_for("HikeResponseV2");
@@ -158,6 +160,7 @@ fn v2_response_without_weather_matches_spec() {
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
 
+// @spec API-WIRE-007, WX-OUT-007
 #[test]
 fn v2_precip_timing_nulls_validate() {
     // expected=false with null timestamps must still satisfy the schema.
@@ -176,6 +179,7 @@ fn v2_precip_timing_nulls_validate() {
 
 /// `GET /hike-locations` serves this file verbatim, so nothing else validates
 /// its shape. Guard that it stays a non-empty array of {short_name, full_name}.
+// @spec API-LOC-001
 #[test]
 fn hike_location_mapping_is_well_formed() {
     const MAPPING_JSON: &str = include_str!("../resources/hike-location-mapping.json");

@@ -16,6 +16,7 @@ pub enum ApiVersion {
 /// - `"1"` → V1, `"2"` → V2.
 /// - Anything else (unknown version, non-integer) → `Err`, which callers map to 400.
 #[allow(clippy::result_unit_err)] // unit error is sufficient; caller maps it to a 400
+// @spec API-VER-001, API-VER-002
 pub fn parse_version(header: Option<&str>) -> Result<ApiVersion, ()> {
     match header {
         Some("1") => Ok(ApiVersion::V1),
@@ -27,6 +28,7 @@ pub fn parse_version(header: Option<&str>) -> Result<ApiVersion, ()> {
 /// Deprecation registry: the sunset date (RFC 8594 `Sunset` header value, an
 /// HTTP-date) for a version, or `None` if it isn't deprecated. v1 is deprecated
 /// with a sunset of 2026-08-20; v2 is current.
+// @spec API-VER-006
 pub fn sunset(version: ApiVersion) -> Option<&'static str> {
     match version {
         ApiVersion::V1 => Some("Thu, 20 Aug 2026 00:00:00 GMT"),
@@ -38,17 +40,20 @@ pub fn sunset(version: ApiVersion) -> Option<&'static str> {
 mod tests {
     use super::*;
 
+    // @spec API-VER-001
     #[test]
     fn missing_header_is_rejected() {
         assert_eq!(parse_version(None), Err(()));
     }
 
+    // @spec API-VER-001
     #[test]
     fn known_versions_parse() {
         assert_eq!(parse_version(Some("1")), Ok(ApiVersion::V1));
         assert_eq!(parse_version(Some("2")), Ok(ApiVersion::V2));
     }
 
+    // @spec API-VER-002
     #[test]
     fn unknown_or_nonnumeric_versions_are_rejected() {
         assert_eq!(parse_version(Some("3")), Err(()));
@@ -56,6 +61,7 @@ mod tests {
         assert_eq!(parse_version(Some("")), Err(()));
     }
 
+    // @spec API-VER-006
     #[test]
     fn v1_is_deprecated() {
         assert_eq!(

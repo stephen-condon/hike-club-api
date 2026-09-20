@@ -7,6 +7,7 @@ pub struct R2HikeStore<'a> {
     pub config: &'a R2Config,
 }
 
+// @spec HIKE-OBJ-001, HIKE-OBJ-003, HIKE-REC-001, HIKE-REC-002, HIKE-REC-003, HIKE-MAP-001, HIKE-MAP-006
 impl<'a> HikeStore for R2HikeStore<'a> {
     async fn get_hike(&self, id: &str) -> Result<Option<HikeRecord>, String> {
         let key = format!("hikes/{id}.json");
@@ -45,6 +46,7 @@ impl<'a> HikeStore for R2HikeStore<'a> {
     }
 }
 
+// @spec HIKE-CFG-001, HIKE-CFG-002, HIKE-MAP-005
 pub fn load_r2_config(env: &worker::Env) -> Result<R2Config, String> {
     Ok(R2Config {
         account_id: env

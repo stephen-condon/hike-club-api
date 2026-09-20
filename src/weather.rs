@@ -48,6 +48,7 @@ pub trait WeatherSource {
 }
 
 /// Periods overlapping `[start, end]`, borrowed from the full forecast.
+// @spec WX-WIN-001
 fn periods_in_window(
     periods: &[RawPeriod],
     start: DateTime<Utc>,
@@ -60,6 +61,7 @@ fn periods_in_window(
 }
 
 /// Pure parsing of NWS `/points/{lat},{lon}` response -> the hourly forecast URL.
+// @spec WX-SRC-006
 pub(crate) fn forecast_hourly_url(points: &serde_json::Value) -> Result<String, String> {
     points["properties"]["forecastHourly"]
         .as_str()
@@ -70,6 +72,7 @@ pub(crate) fn forecast_hourly_url(points: &serde_json::Value) -> Result<String, 
 /// Pure parsing of an NWS hourly-forecast response into our internal shape.
 /// Periods with unparseable/missing required fields are dropped rather than
 /// failing the whole forecast.
+// @spec WX-PARSE-001, WX-PARSE-002, WX-PARSE-003
 pub(crate) fn parse_periods(forecast: &serde_json::Value) -> Vec<RawPeriod> {
     forecast["properties"]["periods"]
         .as_array()
@@ -99,6 +102,7 @@ pub(crate) fn parse_periods(forecast: &serde_json::Value) -> Vec<RawPeriod> {
 /// validity windows. `onset`/`ends` fall back to `effective`/`expires` (NWS
 /// populates one or the other); a missing bound is left `None` and treated as
 /// open-ended by consumers.
+// @spec WX-PARSE-010, WX-PARSE-011
 pub(crate) fn parse_active_alerts(alerts: &serde_json::Value) -> Vec<RawAlert> {
     alerts["features"]
         .as_array()
@@ -137,6 +141,7 @@ fn parse_wind_mph(raw: &str) -> Option<f64> {
 
 /// Pure parsing of NWS `/points/{lat},{lon}` response -> the observation-stations
 /// list URL (used to find the nearest reporting station for past hikes).
+// @spec WX-SRC-007
 pub(crate) fn observation_stations_url(points: &serde_json::Value) -> Result<String, String> {
     points["properties"]["observationStations"]
         .as_str()
@@ -146,6 +151,7 @@ pub(crate) fn observation_stations_url(points: &serde_json::Value) -> Result<Str
 
 /// Pure parsing of an NWS observation-stations response -> the nearest station's
 /// URL. Stations come proximity-ordered, so `features[0].id` is closest.
+// @spec WX-SRC-007
 pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, String> {
     stations["features"][0]["id"]
         .as_str()
@@ -156,6 +162,7 @@ pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, 
 /// Formats an instant for the NWS `/observations?start=&end=` query. Must use the
 /// `Z` form: the `+00:00` that `to_rfc3339()` emits has an unencoded `+` that NWS
 /// decodes as a space, yielding a 400 and (best-effort) no observed weather.
+// @spec WX-SRC-009
 pub(crate) fn nws_query_time(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
@@ -182,6 +189,7 @@ fn wind_to_mph(value: f64, unit_code: &str) -> f64 {
 /// a 1-hour span (obs are ~hourly) so `periods_in_window` includes readings that
 /// bracket the hike window. Observations missing a temperature are dropped, same
 /// as `parse_periods` drops incomplete forecast periods.
+// @spec WX-PARSE-004, WX-PARSE-005, WX-PARSE-006, WX-PARSE-007, WX-PARSE-008, WX-PARSE-009
 pub(crate) fn parse_observations(obs: &serde_json::Value) -> Vec<RawPeriod> {
     let mut periods: Vec<RawPeriod> = obs["features"]
         .as_array()
@@ -229,6 +237,7 @@ const PRECIP_LIKELY_THRESHOLD_PCT: u8 = 50;
 const HEAT_INDEX_ALERT_F: f64 = 85.0;
 const WIND_CHILL_ALERT_F: f64 = 32.0;
 
+// @spec WX-ALERT-001
 fn max_precip_prob(periods: &[&RawPeriod]) -> u8 {
     periods.iter().map(|p| p.precip_prob_pct).max().unwrap_or(0)
 }
@@ -251,6 +260,7 @@ fn min_wind_chill(periods: &[&RawPeriod]) -> Option<f64> {
         .fold(None, |acc, wc| Some(acc.map_or(wc, |a: f64| a.min(wc))))
 }
 
+// @spec WX-ALERT-005
 fn precip_alert(max_prob: u8) -> Option<Alert> {
     (max_prob >= PRECIP_ALERT_THRESHOLD_PCT).then(|| Alert {
         kind: "precip".to_string(),
@@ -258,6 +268,7 @@ fn precip_alert(max_prob: u8) -> Option<Alert> {
     })
 }
 
+// @spec WX-ALERT-006
 fn heat_alert(heat_index_f: Option<f64>) -> Option<Alert> {
     heat_index_f
         .filter(|hi| *hi > HEAT_INDEX_ALERT_F)
@@ -267,6 +278,7 @@ fn heat_alert(heat_index_f: Option<f64>) -> Option<Alert> {
         })
 }
 
+// @spec WX-ALERT-007
 fn wind_chill_alert(wind_chill_f: Option<f64>) -> Option<Alert> {
     wind_chill_f
         .filter(|wc| *wc < WIND_CHILL_ALERT_F)
@@ -322,6 +334,7 @@ pub fn build_weather(
 /// Builds the **v2** `WeatherV2` block: start/end temps, precip timing across the
 /// hike's local calendar day, and NWS alerts filtered to those overlapping the
 /// hike window.
+// @spec WX-OUT-003, WX-OUT-004, WX-OUT-008, WX-ALERT-011
 pub fn build_weather_v2(
     raw: &RawForecast,
     start: DateTime<Utc>,
@@ -367,6 +380,7 @@ pub fn build_weather_v2(
 /// own offset): earliest start / latest end among hours at/above the "likely"
 /// threshold. Timestamps are emitted in the hike's local offset so they read
 /// naturally, and may fall before/after the hike window.
+// @spec WX-OUT-006, WX-OUT-007, WX-OUT-008, WX-OUT-009
 fn precip_timing(
     periods: &[RawPeriod],
     start: DateTime<Utc>,
@@ -401,6 +415,7 @@ fn precip_timing(
 }
 
 /// NWS Rothfusz regression, °F + relative humidity % -> heat index °F.
+// @spec WX-ALERT-002
 pub fn heat_index(temp_f: f64, humidity_pct: f64) -> f64 {
     let t = temp_f;
     let r = humidity_pct;
@@ -418,6 +433,7 @@ pub fn heat_index(temp_f: f64, humidity_pct: f64) -> f64 {
 }
 
 /// NWS wind chill formula, °F + wind speed mph -> wind chill °F.
+// @spec WX-ALERT-003
 pub fn wind_chill(temp_f: f64, wind_mph: f64) -> f64 {
     let t = temp_f;
     let v = wind_mph.powf(0.16);
@@ -468,12 +484,14 @@ mod tests {
         }
     }
 
+    // @spec WX-WIN-002
     #[test]
     fn no_periods_means_no_weather() {
         assert!(build_weather(&RawForecast::default(), at(8, 0), at(9, 0)).is_none());
         assert!(build_weather_v2(&RawForecast::default(), at(8, 0), at(9, 0), UTC).is_none());
     }
 
+    // @spec WX-SRC-006
     #[test]
     fn forecast_hourly_url_extracts_from_points_response() {
         let points = serde_json::json!({
@@ -485,11 +503,13 @@ mod tests {
         );
     }
 
+    // @spec WX-SRC-006
     #[test]
     fn forecast_hourly_url_errors_when_missing() {
         assert!(forecast_hourly_url(&serde_json::json!({})).is_err());
     }
 
+    // @spec WX-PARSE-001, WX-PARSE-002, WX-PARSE-003
     #[test]
     fn parse_periods_reads_real_nws_shape() {
         let forecast = serde_json::json!({
@@ -514,6 +534,7 @@ mod tests {
         assert_eq!(periods[0].short_forecast, "Partly Cloudy");
     }
 
+    // @spec WX-PARSE-001
     #[test]
     fn parse_periods_drops_entries_missing_required_fields() {
         let forecast = serde_json::json!({
@@ -522,11 +543,13 @@ mod tests {
         assert!(parse_periods(&forecast).is_empty());
     }
 
+    // @spec WX-PARSE-001
     #[test]
     fn parse_periods_handles_missing_array() {
         assert!(parse_periods(&serde_json::json!({})).is_empty());
     }
 
+    // @spec WX-PARSE-010
     #[test]
     fn parse_active_alerts_reads_events_and_times() {
         let alerts = serde_json::json!({
@@ -562,6 +585,7 @@ mod tests {
         );
     }
 
+    // @spec WX-PARSE-010
     #[test]
     fn parse_active_alerts_handles_missing_array_and_times() {
         assert!(parse_active_alerts(&serde_json::json!({})).is_empty());
@@ -571,6 +595,7 @@ mod tests {
         assert_eq!(parsed[0].ends, None);
     }
 
+    // @spec WX-PARSE-002
     #[test]
     fn parse_wind_mph_handles_range_format() {
         assert_eq!(parse_wind_mph("10 to 20 mph"), Some(10.0));
@@ -578,6 +603,7 @@ mod tests {
         assert_eq!(parse_wind_mph(""), None);
     }
 
+    // @spec WX-WIN-001
     #[test]
     fn build_weather_ignores_periods_outside_the_window() {
         // 08:00 period is in-window; a hot 20:00 period must not leak into metrics.
@@ -591,6 +617,7 @@ mod tests {
         assert!(w.alerts.is_empty());
     }
 
+    // @spec WX-ALERT-004
     #[test]
     fn mild_conditions_produce_no_alerts() {
         let w = build_weather(&one_period(70.0, 40.0, 5.0, 0), at(8, 0), at(9, 0)).unwrap();
@@ -599,6 +626,7 @@ mod tests {
         assert!(w.wind_chill_f.is_none());
     }
 
+    // @spec WX-ALERT-002, WX-ALERT-006, WX-ALERT-009
     #[test]
     fn hot_humid_triggers_heat_index_alert() {
         let w = build_weather(&one_period(95.0, 70.0, 5.0, 0), at(8, 0), at(9, 0)).unwrap();
@@ -606,6 +634,7 @@ mod tests {
         assert!(w.alerts.iter().any(|a| a.kind == "heat_index"));
     }
 
+    // @spec WX-ALERT-003, WX-ALERT-007, WX-ALERT-009
     #[test]
     fn cold_windy_triggers_wind_chill_alert() {
         let w = build_weather(&one_period(20.0, 40.0, 15.0, 0), at(8, 0), at(9, 0)).unwrap();
@@ -613,6 +642,7 @@ mod tests {
         assert!(w.alerts.iter().any(|a| a.kind == "wind_chill"));
     }
 
+    // @spec WX-ALERT-005, WX-ALERT-009
     #[test]
     fn any_precip_probability_triggers_precip_alert() {
         let w = build_weather(&one_period(70.0, 40.0, 5.0, 20), at(8, 0), at(9, 0)).unwrap();
@@ -634,6 +664,7 @@ mod tests {
         );
     }
 
+    // @spec WX-OUT-003, WX-OUT-004
     #[test]
     fn v2_reports_start_and_end_temps() {
         let raw = RawForecast {
@@ -650,6 +681,7 @@ mod tests {
         assert_eq!(w.conditions, "Hour 8");
     }
 
+    // @spec WX-OUT-006, WX-OUT-007
     #[test]
     fn v2_precip_timing_detects_rain_before_the_hike() {
         // Rain 06:00-08:00 (>=50%), hike 08:00-11:00 dry. Timing spans the pre-hike
@@ -677,6 +709,7 @@ mod tests {
         );
     }
 
+    // @spec WX-OUT-006, WX-OUT-007
     #[test]
     fn v2_precip_timing_empty_when_no_likely_hours() {
         let raw = RawForecast {
@@ -689,6 +722,7 @@ mod tests {
         assert!(w.precipitation.ends_at.is_none());
     }
 
+    // @spec WX-OUT-009
     #[test]
     fn v2_precip_timing_respects_local_calendar_day() {
         // Offset -04:00: hike starts 2026-07-18T12:00Z == 08:00 local (day 07-18).
@@ -731,6 +765,7 @@ mod tests {
         );
     }
 
+    // @spec WX-ALERT-011
     #[test]
     fn v2_filters_alerts_to_the_hike_window() {
         let raw = RawForecast {
@@ -753,6 +788,7 @@ mod tests {
         assert!(!events.contains(&"Before hike"));
     }
 
+    // @spec WX-SRC-009
     #[test]
     fn nws_query_time_uses_z_not_plus_offset() {
         // NWS 400s on the +00:00 form (the + decodes to a space in the query).
@@ -762,6 +798,7 @@ mod tests {
         assert!(!s.contains('+'), "query time must not contain '+': {s}");
     }
 
+    // @spec WX-SRC-007
     #[test]
     fn observation_stations_url_extracts_from_points_response() {
         let points = serde_json::json!({
@@ -774,6 +811,7 @@ mod tests {
         assert!(observation_stations_url(&serde_json::json!({})).is_err());
     }
 
+    // @spec WX-SRC-007
     #[test]
     fn first_station_url_takes_nearest() {
         let stations = serde_json::json!({
@@ -789,6 +827,7 @@ mod tests {
         assert!(first_station_url(&serde_json::json!({ "features": [] })).is_err());
     }
 
+    // @spec WX-PARSE-004, WX-PARSE-005, WX-PARSE-006, WX-PARSE-008, WX-PARSE-009
     #[test]
     fn parse_observations_reads_real_nws_shape_and_converts_units() {
         let obs = serde_json::json!({
@@ -817,6 +856,7 @@ mod tests {
         );
     }
 
+    // @spec WX-PARSE-006, WX-PARSE-007
     #[test]
     fn parse_observations_handles_ms_wind_and_no_precip() {
         let obs = serde_json::json!({
@@ -837,6 +877,7 @@ mod tests {
         assert_eq!(periods[0].humidity_pct, None);
     }
 
+    // @spec WX-PARSE-004
     #[test]
     fn parse_observations_drops_readings_missing_temperature() {
         let obs = serde_json::json!({
@@ -846,6 +887,7 @@ mod tests {
         assert!(parse_observations(&serde_json::json!({})).is_empty());
     }
 
+    // @spec WX-SRC-010
     #[test]
     fn observations_flow_through_the_v2_builder() {
         // End-to-end: observed periods drive the same builder past hikes will use.
@@ -881,6 +923,67 @@ mod tests {
         assert_eq!(w.conditions, "Sunny");
     }
 
+    /// The client styles alerts by kind and renders them in order, so the order
+    /// is part of the contract, not an accident of how they are assembled.
+    /// A hike leader decides against the worst hour of the hike, not its average,
+    /// so the probability reported is the window maximum.
+    // @spec WX-ALERT-001
+    #[test]
+    fn precip_probability_is_the_window_maximum() {
+        let raw = RawForecast {
+            periods: vec![
+                hour(8, 70.0, 40.0, 5.0, 10),
+                hour(9, 70.0, 40.0, 5.0, 70),
+                hour(10, 70.0, 40.0, 5.0, 20),
+            ],
+            alerts: vec![],
+        };
+        let weather = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        assert_eq!(weather.precipitation.probability_pct, 70);
+    }
+
+    // @spec WX-ALERT-008, WX-ALERT-009
+    #[test]
+    fn alerts_are_emitted_in_a_fixed_order() {
+        let raw = RawForecast {
+            periods: vec![hour(8, 95.0, 70.0, 2.0, 80), hour(9, 20.0, 50.0, 20.0, 0)],
+            alerts: vec![alert("Flood Watch", Some(at(8, 0)), Some(at(10, 0)))],
+        };
+        let weather = build_weather_v2(&raw, at(8, 0), at(10, 0), UTC).unwrap();
+        let kinds: Vec<&str> = weather.alerts.iter().map(|a| a.kind.as_str()).collect();
+        assert_eq!(kinds, ["precip", "nws_alert", "heat_index", "wind_chill"]);
+    }
+
+    /// `probabilityPct` answers "is rain possible?" and the timing answers "when
+    /// will it actually rain?" — a 30% hour is reported but times nothing.
+    // @spec WX-OUT-008
+    #[test]
+    fn probability_is_the_window_max_even_below_the_timing_threshold() {
+        let raw = one_period(70.0, 40.0, 5.0, 30);
+        let weather = build_weather_v2(&raw, at(8, 0), at(9, 0), UTC).unwrap();
+        assert_eq!(weather.precipitation.probability_pct, 30);
+        assert!(!weather.precipitation.expected);
+        assert!(weather.precipitation.starts_at.is_none());
+        assert!(weather.precipitation.ends_at.is_none());
+    }
+
+    /// An alert with no event name has nothing to show the reader, so it is
+    /// dropped rather than rendered blank.
+    // @spec WX-PARSE-011
+    #[test]
+    fn alerts_without_an_event_name_are_dropped() {
+        let json = serde_json::json!({
+            "features": [
+                { "properties": { "onset": "2026-07-18T12:00:00Z" } },
+                { "properties": { "event": "Heat Advisory" } }
+            ]
+        });
+        let alerts = parse_active_alerts(&json);
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].event, "Heat Advisory");
+    }
+
+    // @spec WX-ALERT-002
     #[test]
     fn heat_index_matches_known_value() {
         // NWS Rothfusz regression at 95F/70% RH evaluates to ~122.6F.
@@ -888,6 +991,7 @@ mod tests {
         assert!((120.0..=125.0).contains(&hi), "got {hi}");
     }
 
+    // @spec WX-ALERT-003
     #[test]
     fn wind_chill_matches_known_value() {
         // NWS reference: 20F at 15mph wind chill ~= 6F.

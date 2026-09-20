@@ -12,6 +12,7 @@ const OBSERVATION_TTL_SECS: u32 = 86_400;
 
 pub struct NwsWeatherSource;
 
+// @spec WX-SRC-001, WX-SRC-002
 impl WeatherSource for NwsWeatherSource {
     async fn forecast(
         &self,
@@ -45,6 +46,7 @@ impl WeatherSource for NwsWeatherSource {
 
 /// Cache-API read-through: serve a cached `RawForecast` for `key`, else run
 /// `fetch`, cache it under `ttl`, and return it.
+// @spec WX-CACHE-001, WX-CACHE-004, WX-CACHE-005, WX-CACHE-006, WX-CACHE-007
 async fn cached(
     key: &str,
     ttl: u32,
@@ -98,6 +100,7 @@ async fn cached(
 /// Fetches actual observed weather for a completed hike from the nearest NWS
 /// station. ponytail: no historical NWS watch/warning alerts here — active alerts
 /// are a *now* concept; add a `/alerts?start=&end=` fetch if past alerts matter.
+// @spec WX-SRC-004, WX-SRC-007, WX-SRC-009, WX-ALERT-012
 async fn fetch_nws_observations(
     lat: f64,
     lon: f64,
@@ -124,6 +127,7 @@ async fn fetch_nws_observations(
     })
 }
 
+// @spec WX-SRC-004, WX-SRC-006, WX-CACHE-007
 async fn fetch_nws_forecast(lat: f64, lon: f64) -> Result<RawForecast, String> {
     let points_url = format!("https://api.weather.gov/points/{lat:.4},{lon:.4}");
     let points: serde_json::Value = get_json(&points_url).await?;
@@ -139,6 +143,7 @@ async fn fetch_nws_forecast(lat: f64, lon: f64) -> Result<RawForecast, String> {
     Ok(RawForecast { periods, alerts })
 }
 
+// @spec WX-SRC-003, WX-SRC-005, WX-SRC-011
 async fn get_json(url: &str) -> Result<serde_json::Value, String> {
     let headers = worker::Headers::new();
     headers
