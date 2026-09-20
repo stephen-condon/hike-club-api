@@ -33,6 +33,16 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .get_async("/hike/:id", |req, ctx| async move {
             handle_hike(req, ctx).await
         })
+        // Both spellings of the id-less collection path reach the same handler,
+        // which answers 404 once admission has run.
+        .get_async(
+            "/hike",
+            |req, ctx| async move { handle_hike(req, ctx).await },
+        )
+        .get_async(
+            "/hike/",
+            |req, ctx| async move { handle_hike(req, ctx).await },
+        )
         .get_async("/hike-locations", |req, ctx| async move {
             handle_hike_locations(req, ctx).await
         })
@@ -100,7 +110,7 @@ async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Re
     with_deprecation(resp, version)
 }
 
-// @spec API-ROUTE-001, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
+// @spec API-ROUTE-001, API-ROUTE-004, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
 async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),
@@ -117,7 +127,7 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     };
 
     let Some(id) = ctx.param("id") else {
-        return Response::error("missing hike id", 400);
+        return Response::error("hike not found", 404);
     };
 
     let config = match load_r2_config(&ctx.env) {
