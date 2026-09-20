@@ -1,0 +1,40 @@
+# Hike Record — Specs
+
+Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
+
+## Object layout
+
+- [x] **HIKE-OBJ-001**: The system shall read hike records from an R2 bucket it never writes to, treating the sibling admin worker as that bucket's only writer.
+- [x] **HIKE-OBJ-002**: The system shall expect one hike record per location, keyed by the location slug with no date component and overwritten when that location is next scheduled, so that a hike's URL is stable across reschedules.
+- [x] **HIKE-OBJ-003**: The system shall address each hike record as the R2 object `hikes/{id}.json`, where `{id}` is the location slug requested.
+- [x] **HIKE-OBJ-004**: The system shall expect a location's trail map at `hikes/{id}/map.png` by convention, while resolving the map through the record's `mapKey`, which may name any object key in the bucket.
+
+## Record retrieval
+
+- [x] **HIKE-REC-001**: When a hike is requested by id, the system shall read the R2 object `hikes/{id}.json` through the `HIKES` binding.
+- [x] **HIKE-REC-002**: If no object exists at `hikes/{id}.json`, then the system shall report the hike as absent rather than as an error.
+- [x] **HIKE-REC-003**: If the object at `hikes/{id}.json` carries no body, or does not deserialize into the hike record schema, then the system shall report an error rather than reporting the hike as absent.
+- [x] **HIKE-REC-004**: The system shall ignore fields present in the record JSON that the hike record schema does not define.
+- [x] **HIKE-REC-005**: The system shall read `id`, `start`, `end`, `meeting.lat`, `meeting.lon`, `trails`, and `mapKey` from each hike record.
+
+## Record validation
+
+- [x] **HIKE-REC-006**: If a hike record's `start` or `end` does not parse as an RFC 3339 timestamp carrying a UTC offset, then the system shall report an error rather than serving the hike.
+- [ ] **HIKE-REC-007**: If a hike record's `end` is not strictly after its `start`, then the system shall report an error rather than serving the hike.
+- [ ] **HIKE-REC-008**: The system shall validate a hike record — timestamp parsing, ordering, and map existence — before any part of that hike is rendered into a response.
+
+## Map presigning
+
+- [x] **HIKE-MAP-001**: When a validated hike record is served, the system shall return a presigned URL for the R2 object named by that record's `mapKey`.
+- [ ] **HIKE-MAP-002**: Before returning a presigned map URL, the system shall confirm through an object-metadata read that the object named by `mapKey` exists in the bucket, and shall report an error if it does not.
+- [x] **HIKE-MAP-003**: The system shall presign map URLs using AWS Signature Version 4 query signing against the R2 S3-compatible endpoint, with region `auto`, service `s3`, `host` as the only signed header, and an unsigned payload.
+- [x] **HIKE-MAP-004**: The system shall address the bucket path-style when presigning, placing the bucket name in the URL path rather than the hostname.
+- [x] **HIKE-MAP-005**: The system shall presign map URLs with a time to live of 3600 seconds.
+- [x] **HIKE-MAP-006**: The system shall report `map.expiresAt` as the signing instant plus the presign time to live.
+- [x] **HIKE-MAP-007**: The system shall percent-encode object keys for signing per Signature Version 4 rules, encoding each path segment individually so that `/` separators are preserved.
+- [x] **HIKE-MAP-008**: The system shall compute a presigned URL as a pure function of a supplied signing instant, so that signing is exercised in tests without the Workers runtime clock.
+
+## Configuration
+
+- [x] **HIKE-CFG-001**: The system shall read `R2_ACCOUNT_ID` and `R2_BUCKET_NAME` from environment variables, and `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from secrets.
+- [x] **HIKE-CFG-002**: The system shall read hike records through the `HIKES` R2 binding and mint presigned map URLs through the R2 API credentials.
