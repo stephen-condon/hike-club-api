@@ -59,6 +59,14 @@ check_status "health is served unauthenticated" 200 "/health"
 check_status "unrouted path" 501 "/not-a-route"
 check_status "root path" 501 "/"
 
+# @spec API-ROUTE-003 — a routed path under a method it does not serve is 405
+# with an Allow header naming what it does serve, and is answered without a key:
+# the path exists, the method does not.
+check_status "health under POST" 405 "/health" -X POST
+check_header "405 names the supported methods" '^allow:.*GET'
+check_status "hike under DELETE" 405 "/hike/smoke-test" -X DELETE
+check_status "locations under PUT" 405 "/hike-locations" -X PUT
+
 # @spec API-AUTH-003 — a missing key is rejected before anything else happens.
 check_status "hike without an api key" 401 "/hike/smoke-test" \
   -H "x-api-version: 2"
