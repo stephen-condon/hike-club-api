@@ -36,8 +36,19 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .get_async("/hike-locations", |req, ctx| async move {
             handle_hike_locations(req, ctx).await
         })
+        // The bare root is registered alongside the wildcard because matchit's
+        // catch-all needs a segment to bind to and would leave "/" unmatched.
+        .or_else_any_method_async("/", |_, _| async { not_implemented() })
+        .or_else_any_method_async("/*path", |_, _| async { not_implemented() })
         .run(req, env)
         .await
+}
+
+/// A path the router does not know. 404 is reserved for a hike that does not
+/// exist, so an unknown URL says so in its own status code.
+// @spec API-ROUTE-002
+fn not_implemented() -> Result<Response> {
+    Response::error("not implemented", 501)
 }
 
 /// Reads and validates the `x-api-version` header. `Ok(version)` on success;
