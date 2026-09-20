@@ -33,11 +33,32 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
         .get_async("/hike/:id", |req, ctx| async move {
             handle_hike(req, ctx).await
         })
+        // Both spellings of the id-less collection path reach the same handler,
+        // which answers 404 once admission has run.
+        .get_async(
+            "/hike",
+            |req, ctx| async move { handle_hike(req, ctx).await },
+        )
+        .get_async(
+            "/hike/",
+            |req, ctx| async move { handle_hike(req, ctx).await },
+        )
         .get_async("/hike-locations", |req, ctx| async move {
             handle_hike_locations(req, ctx).await
         })
+        // The bare root is registered alongside the wildcard because matchit's
+        // catch-all needs a segment to bind to and would leave "/" unmatched.
+        .or_else_any_method_async("/", |_, _| async { not_implemented() })
+        .or_else_any_method_async("/*path", |_, _| async { not_implemented() })
         .run(req, env)
         .await
+}
+
+/// A path the router does not know. 404 is reserved for a hike that does not
+/// exist, so an unknown URL says so in its own status code.
+// @spec API-ROUTE-002
+fn not_implemented() -> Result<Response> {
+    Response::error("not implemented", 501)
 }
 
 /// Reads and validates the `x-api-version` header. `Ok(version)` on success;
@@ -89,7 +110,7 @@ async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Re
     with_deprecation(resp, version)
 }
 
-// @spec API-ROUTE-001, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
+// @spec API-ROUTE-001, API-ROUTE-004, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
 async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),
@@ -106,7 +127,7 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     };
 
     let Some(id) = ctx.param("id") else {
-        return Response::error("missing hike id", 400);
+        return Response::error("hike not found", 404);
     };
 
     let config = match load_r2_config(&ctx.env) {

@@ -55,6 +55,10 @@ echo "smoke test: $base_url"
 # @spec API-ROUTE-001 — health is open, no key and no version header.
 check_status "health is served unauthenticated" 200 "/health"
 
+# @spec API-ROUTE-002 — an unrouted path is 501; 404 is reserved for a missing hike.
+check_status "unrouted path" 501 "/not-a-route"
+check_status "root path" 501 "/"
+
 # @spec API-AUTH-003 — a missing key is rejected before anything else happens.
 check_status "hike without an api key" 401 "/hike/smoke-test" \
   -H "x-api-version: 2"
@@ -99,6 +103,13 @@ check_status "hike with a non-integer version" 400 "/hike/smoke-test" \
 
 # @spec API-RESP-004, HIKE-REC-002 — a hike that does not exist is a 404, not an error.
 check_status "hike that does not exist" 404 "/hike/definitely-not-a-hike" \
+  -H "x-api-key: $api_key" -H "x-api-version: 2"
+
+# @spec API-ROUTE-004 — /hike and /hike/ address the collection and name nothing
+# in it: a hike that does not exist, not an unrouted path and not a bad request.
+check_status "hike collection with no id" 404 "/hike" \
+  -H "x-api-key: $api_key" -H "x-api-version: 2"
+check_status "hike collection with a trailing slash" 404 "/hike/" \
   -H "x-api-key: $api_key" -H "x-api-version: 2"
 
 # @spec API-LOC-001, API-LOC-002 — the location mapping is served as JSON.

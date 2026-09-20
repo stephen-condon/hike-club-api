@@ -53,7 +53,7 @@ paths:
                   - $ref: "#/components/schemas/HikeResponse"
                   - $ref: "#/components/schemas/HikeResponseV2"
         "400":
-          description: Missing hike id, or missing/unsupported API version
+          description: Missing or unsupported API version
         "401":
           description: Missing or invalid API key
         "404":
