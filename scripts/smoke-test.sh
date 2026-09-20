@@ -55,6 +55,10 @@ echo "smoke test: $base_url"
 # @spec API-ROUTE-001 — health is open, no key and no version header.
 check_status "health is served unauthenticated" 200 "/health"
 
+# @spec API-ROUTE-002 — an unrouted path is 501; 404 is reserved for a missing hike.
+check_status "unrouted path" 501 "/not-a-route"
+check_status "root path" 501 "/"
+
 # @spec API-AUTH-003 — a missing key is rejected before anything else happens.
 check_status "hike without an api key" 401 "/hike/smoke-test" \
   -H "x-api-version: 2"
