@@ -28,7 +28,7 @@ All requests carry a `User-Agent` identifying the application and a contact addr
 
 **Forecast path.** `/points/{lat},{lon}` yields the point's `forecastHourly` URL; that URL yields hourly periods. `/alerts/active?point={lat},{lon}` yields active watches, warnings, and advisories with their validity windows.
 
-**Observation path.** `/points/{lat},{lon}` yields the point's `observationStations` URL; that list is proximity-ordered. The nearest station is tried first, and a station that returns no readings for the window is passed over for the next one, up to three stations. A station being listed for a point does not mean it was reporting that day — equipment goes offline — and stopping at the first one turns a single silent gauge into a hike with no weather. The cap bounds the latency a fully dead neighbourhood of stations can cost, since each attempt is a round trip against a 1s P90 budget.
+**Observation path.** `/points/{lat},{lon}` yields the point's `observationStations` URL; that list is proximity-ordered. The nearest station is tried first, and a station that returns no readings for the window is passed over for the next one, up to three stations. Exhausting all three is a conclusive answer — nothing was recorded near this hike — and is cached as such. A station being listed for a point does not mean it was reporting that day — equipment goes offline — and stopping at the first one turns a single silent gauge into a hike with no weather. The cap bounds the latency a fully dead neighbourhood of stations can cost, since each attempt is a round trip against a 1s P90 budget.
 
 Coordinates are formatted to four decimal places — about eleven metres, far finer than a forecast grid cell, and stable enough that the same meeting point always produces the same URL. The same precision is used for cache keys, so a key and the request it stands for describe the same point.
 
@@ -51,7 +51,9 @@ Forecasts expire in ten minutes because NWS updates hourly and a stale forecast 
 
 The forecast key deliberately omits the hike window: the whole hourly forecast for a point is cached once and each request filters it to its own window. The observation key includes the hike's date, because each past hike queries a different range — and that date is the hike's **local** calendar day, the same day boundary the precipitation timing uses, so the segment has one definition of "day" rather than two.
 
-**A periodless result is never written to the cache, and a periodless entry read from the cache is treated as a miss.** An empty result means upstream had nothing to say — a gap, an error body, a station with no readings — not that there is no weather. Writing one would suppress weather for the full TTL; the guard on the read side also self-heals entries written before the rule existed.
+**A periodless forecast is never written to the cache, and a periodless forecast entry read from the cache is treated as a miss.** An empty forecast means upstream had nothing to say — a gap, an error body — not that there is no weather. Writing one would suppress weather for the full TTL; the guard on the read side also self-heals entries written before the rule existed.
+
+Observations are the opposite case, and are cached even when empty. A completed hike whose three nearest stations all reported nothing is a settled fact, not a transient gap: the day is over and no reading will appear later. Refusing to cache it would mean every view of that hike pays the full station walk — four upstream requests — for an answer that cannot change. The distinction is not emptiness but whether the underlying question is still open.
 
 ## Parsing
 
@@ -89,25 +91,23 @@ The 1% precipitation threshold makes any nonzero chance worth mentioning. Rain o
 
 Alerts are emitted in a fixed order — precipitation, NWS alerts, heat index, wind chill — each tagged with a kind (`precip`, `nws_alert`, `heat_index`, `wind_chill`) so the client can style them without parsing the message.
 
-The versions treat NWS alerts differently. v1 passes through every alert active at the point. v2 keeps only those whose validity window overlaps the hike window, with a missing bound treated as open-ended on that side. A winter storm warning starting nine hours after the hike ends is true and irrelevant, and an irrelevant alert on the screen teaches the reader to ignore the row.
+Only alerts whose validity window overlaps the hike window are included, with a missing bound treated as open-ended on that side. A winter storm warning starting nine hours after the hike ends is true and irrelevant, and an irrelevant alert on the screen teaches the reader to ignore the row.
 
 The observation path returns no alerts at all. Active alerts are a statement about now; a past hike's alerts would require a historical query that does not fire.
 
 ## Version Output
 
-| | v1 | v2 |
+| | v2 (frozen) | v3 |
 |---|---|---|
-| Temperature | `temperatureF` — first in-window period | `startTempF` / `endTempF` — first and last in-window periods |
-| Conditions | First in-window period's phrase | Same |
-| Precipitation | `probabilityPct` + `amountIn`, always `0.0` | `probabilityPct`, `expected`, `startsAt`, `endsAt` |
-| NWS alerts | All active at the point | Window-overlapping only |
-| Heat index / wind chill | Same | Same |
+| Temperature | `startTempF` / `endTempF` — first and last in-window periods | same |
+| Conditions | `conditions` — first in-window period | `startConditions` / `endConditions` — first and last in-window periods |
+| Precipitation | `probabilityPct`, `expected`, `startsAt`, `endsAt` | same |
+| NWS alerts | window-overlapping only | same |
+| Heat index / wind chill | reported when their gates are met | same |
 
-v1's `amountIn` is structurally zero: the NWS hourly forecast exposes probability but not quantity, which would need a second gridpoint fetch. It stays in the v1 shape because removing a field breaks a shipped client, and v2 drops it.
+A four-hour hike that starts at 62°F and ends at 81°F is badly described by one number, which is why both ends are reported. The same is true of the sky, and v2 does not yet say so: a hike that starts clear and ends in thunderstorms reads "Sunny", because conditions were never paired with the temperatures they describe. v3 pairs them.
 
-A four-hour hike that starts at 62°F and ends at 81°F is badly described by one number. v2 reports both ends, which is what the extra field exists for.
-
-## Precipitation Timing (v2)
+## Precipitation Timing
 
 `expected`, `startsAt`, and `endsAt` describe rain across the hike's **local calendar day**, not its window — the day of `start` in the record's own offset. Timestamps are emitted in that same offset and may fall before or after the hike.
 
@@ -131,7 +131,8 @@ Knowing rain arrives at 2pm lets a leader start early rather than cancel, which 
 | Coordinate precision in cache keys | Four decimals, matching the NWS request | Two decimals, to share entries across nearby points | A key coarser than the request it stands for can serve one point's data for another's query. Meeting points are fixed per location, so the sharing bought nothing. |
 | Day boundary | The hike's local calendar day, for both precipitation timing and observation cache keys | UTC day; the hike window itself | Timing answers a human question about a human day. Using the same boundary for the cache key keeps one definition of "day" in the segment. |
 | Cache backend | Workers Cache API | KV; Durable Object; no cache | Free and colo-local. KV would share across colos but adds a binding and eventual-consistency semantics for a forecast that is stale in ten minutes anyway. |
-| Empty results | Never cached; cached empties treated as a miss | Cache uniformly | An empty result is an upstream gap, not authoritative "no weather"; caching one suppresses weather for the whole TTL. |
+| Empty forecasts | Never cached; cached empties treated as a miss | Cache uniformly | An empty forecast is an upstream gap, not authoritative "no weather"; caching one suppresses weather for the whole TTL. |
+| Empty observations | Cached for the full observation TTL | Never cached, as with forecasts | A completed hike whose nearby stations recorded nothing is a settled answer. Not caching it makes every view repeat the whole station walk for a result that cannot change. |
 | NWS error bodies | Status ≥ 400 is a hard failure | Parse whatever came back | NWS returns JSON with its errors; parsing it yields an empty forecast indistinguishable from a real one. |
 | Parse failures | Drop the record, keep the rest | Fail the forecast | One malformed hour should not cost the whole hike's weather. |
 | Wind speed from a range | First number (the low end) | Midpoint; high end | Wind matters here only through wind chill, where the low end is the conservative reading. `[inferred]` |
@@ -139,7 +140,7 @@ Knowing rain arrives at 2pm lets a leader start early rather than cancel, which 
 | Precipitation alert threshold | 1% | 20%; 30%; NWS "chance" wording | Any nonzero chance is a gear decision for a pack of eight-year-olds. |
 | Precipitation timing threshold | 50% | Reuse the 1% alert threshold | A timeline built from 10% hours is noise; timing answers a different question than the alert. |
 | Timing span | Local calendar day | Hike window only; ± a few hours | Rain arriving an hour after the window still changes whether to start early; clipping to the window hides it. |
-| NWS alert filtering | v1 all, v2 window-overlapping | Filter in v1 too | Narrowing v1's alert list would change a shipped client's output. v2 is where the correction lands. |
+| NWS alert filtering | Window-overlapping only | Every alert active at the point | An alert beginning nine hours after the hike ends is true and irrelevant, and an irrelevant row teaches the reader to ignore the list. |
 | Alerts for past hikes | None | Historical `/alerts` query | Active alerts are a *now* concept; a historical fetch is a third request for a screen nobody is reading in a parking lot. |
 | Heat index / wind chill gating | Formula domains (≥80°F, ≤50°F and >3 mph) | Compute always and clamp | Reporting a number outside a formula's domain is inventing one; absent is honest. |
 | Extreme reporting | Max heat index, min wind chill | Mean; value at hike start | A leader decides against the hardest moment of the hike. |
@@ -164,7 +165,7 @@ These are understood, judged unlikely for this pack, and deliberately not handle
 
 ### Deferred
 
-1. **Quantitative precipitation is absent from forecasts.** `amountIn` is structurally zero in v1 and dropped thereafter. A gridpoint QPF fetch would provide it at the cost of a third NWS request.
+1. **Quantitative precipitation is absent from forecasts.** Only probability is reported. A gridpoint QPF fetch would provide an amount at the cost of a third NWS request.
 2. **Observed rainfall is measured but discarded.** The observation feed carries millimetres in `precipitationLastHour`; the binary answer is derived from it and the number thrown away. Reporting it would need a field that means "amount observed" rather than "probability forecast".
 3. **Cross-colo cache sharing.** The Cache API is per-colo, so each edge location fetches independently. KV would share, at the cost of a binding and eventual consistency.
 

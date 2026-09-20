@@ -5,6 +5,7 @@ pub const API_KEY_HEADER: &str = "x-api-key";
 /// Constant-time-ish compare is unnecessary here: this isn't a crypto secret
 /// comparison against a signature, it's a single shared key behind a WAF rule
 /// already filtering unauthenticated traffic before it reaches the worker.
+// @spec API-AUTH-002, API-AUTH-003
 pub fn is_authorized(provided: Option<&str>, expected: &str) -> bool {
     matches!(provided, Some(key) if key == expected)
 }
@@ -13,16 +14,19 @@ pub fn is_authorized(provided: Option<&str>, expected: &str) -> bool {
 mod tests {
     use super::*;
 
+    // @spec API-AUTH-002
     #[test]
     fn accepts_matching_key() {
         assert!(is_authorized(Some("secret"), "secret"));
     }
 
+    // @spec API-AUTH-003
     #[test]
     fn rejects_missing_key() {
         assert!(!is_authorized(None, "secret"));
     }
 
+    // @spec API-AUTH-003
     #[test]
     fn rejects_wrong_key() {
         assert!(!is_authorized(Some("nope"), "secret"));

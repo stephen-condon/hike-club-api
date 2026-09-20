@@ -18,7 +18,7 @@ The segment depends on `hike-record` and `weather` only through the `HikeStore` 
 | Endpoint | Auth | Version header | Response |
 |---|---|---|---|
 | `GET /health` | none | not read | `200 ok` (text) |
-| `GET /hike/{id}` | required | required | `200` v1 or v2 hike object |
+| `GET /hike/{id}` | required | required | `200` hike object in the requested version's shape |
 | `GET /hike-locations` | required | required | `200` slug-to-display-name map (identical under every version) |
 
 `404` means one thing and one thing only: *that hike does not exist*. An unrouted path is `501 Not Implemented` and a known path under an unsupported method is `405 Method Not Allowed` with an `Allow` header, so a client distinguishing "wrong URL" from "no such hike" never has to guess. Paths under `/hike/` that name no id — `/hike` and `/hike/` — resolve to `404` rather than `501`: they address the hike collection correctly and simply identify nothing in it.
@@ -51,11 +51,13 @@ Key comparison is ordinary equality rather than constant-time. The header is a s
 
 A version registry maps each version to a sunset date or to nothing:
 
-| Version | Status | Sunset |
-|---|---|---|
-| 1 | Sunset | `Thu, 20 Aug 2026 00:00:00 GMT` |
-| 2 | Deprecated | `Wed, 18 Nov 2026 00:00:00 GMT` |
-| 3 | Current | — |
+| Version | Status | Sunset | Response shape |
+|---|---|---|---|
+| 1 | Sunset | `Thu, 20 Aug 2026 00:00:00 GMT` | none — removed |
+| 2 | Deprecated | `Wed, 18 Nov 2026 00:00:00 GMT` | frozen |
+| 3 | Current | — | current |
+
+A sunset version stays in the registry after its shape is deleted. The entry is what separates "this version is finished" from "this version never existed": without it, a stale client asking for version 1 would get the `400` meant for a typo instead of the `410` that tells it what to do.
 
 A sunset date is enforced, not advertised. A version whose date has passed is `410 Gone`, and the body names the versions still being served, so a stale app build learns both that it is finished and what to ask for instead. Advertising a date and then serving the version past it trains clients to ignore the header, which is the failure the mechanism exists to prevent.
 
@@ -75,13 +77,16 @@ Parsing and the registry are pure functions held apart from the Workers glue tha
 
 Assembly is one pure async function over both traits:
 
-1. Fetch the hike record. Absent → the whole request is a `404`.
-2. Presign the map URL and capture its expiry.
-3. Parse `start` and `end` from the record as RFC 3339, **preserving the offset**. The offset is passed to v2's weather builder, which reports precipitation timing on the hike's local calendar day; the instants themselves are converted to UTC and drive window filtering.
-4. Request weather for the meeting coordinates over the hike window. A failure here is captured, not propagated.
-5. Build the version-appropriate response.
+1. Fetch the hike record. Absent → the whole request is a `404`. The record arrives validated, with `start` and `end` already parsed; an invalid record surfaces here as a failure, not later as a confusing symptom.
+2. Confirm the map object exists and presign its URL, capturing the expiry.
+3. Request weather for the meeting coordinates over the hike window, passing the hike's UTC offset. A failure here is captured, not propagated.
+4. Build the version-appropriate response.
 
-Weather is the only step allowed to fail without failing the request. When it fails — or succeeds but yields no periods covering the window — the response carries `weatherAvailable: false` and a null `weather` block. Every other step's failure ends the request, because each produces part of the core a hike screen cannot be assembled without.
+The hike's UTC offset crosses into the weather segment because two of that segment's behaviours need it: precipitation timing is reported on the hike's local calendar day, and observations are cached under that same day. Both are statements about the hiker's day, not about UTC, so the offset travels with the request rather than being re-derived.
+
+Weather and, under v3, the trail map are allowed to fail without failing the request. When weather does not produce a block the response carries `weatherAvailable: false` and a null `weather`; when v3 cannot confirm a map object the response carries `mapAvailable: false` and a null `map`. Everything else — the record itself, its timestamps, its meeting point — ends the request when it fails, because a hike screen cannot be assembled without any of it.
+
+A hike whose map upload failed still gets the pack to the trailhead. Withholding the meeting point over a missing PNG trades a degraded screen for no screen at all.
 
 ## Wire Contract
 
@@ -89,15 +94,16 @@ Both versions share the same envelope: `id`, `start`, `end`, `meetingPoint`, `tr
 
 The versions differ only in the `weather` block:
 
-| | v1 `Weather` | v2 `WeatherV2` | v3 `WeatherV3` |
-|---|---|---|---|
-| Temperature | `temperatureF` — first in-window period | `startTempF` / `endTempF` | `startTempF` / `endTempF` |
-| Conditions | `conditions` — first in-window period | `conditions` — first in-window period | `startConditions` / `endConditions` |
-| Precipitation amount | `amountIn`, always `0.0` | dropped | dropped |
-| Precipitation timing | none | `expected`, `startsAt`, `endsAt` | same |
-| NWS alerts | all active at the point | only alerts overlapping the hike window | same |
+| | v2 `WeatherV2` (frozen) | v3 `WeatherV3` |
+|---|---|---|
+| Temperature | `startTempF` / `endTempF` | `startTempF` / `endTempF` |
+| Conditions | `conditions` — first in-window period | `startConditions` / `endConditions` |
+| Precipitation | `probabilityPct`, `expected`, `startsAt`, `endsAt` | same |
+| NWS alerts | only alerts overlapping the hike window | same |
 
-v3 exists because conditions and temperature describe the same span and should be read the same way. A hike that starts sunny and ends in thunderstorms is labelled "Sunny" under v1 and v2; pairing conditions with the temperatures already reported at both ends of the window makes the block internally consistent. The change renames a field, which no shipped version may do, so it lands in a new version and v2 freezes.
+v3 exists because conditions and temperature describe the same span and should be read the same way. A hike that starts sunny and ends in thunderstorms is labelled "Sunny" under v2; pairing conditions with the temperatures already reported at both ends of the window makes the block internally consistent. The change renames a field, which no shipped version may do, so it lands in a new version and v2 freezes.
+
+v3 also makes `map` nullable, with a `mapAvailable` flag beside it, mirroring how weather already degrades. Under v2 a missing map image is still a `502`, because v2's shape cannot express an absent map and a frozen shape is not corrected in place.
 
 `weatherAvailable` restates whether `weather` is null. It stays because a client reading a boolean is less likely to mishandle the absent case than one testing a nested object for null, and removing it would be a breaking change to both shipped versions.
 
@@ -123,7 +129,7 @@ Bodies are plain text, not JSON. The sole client renders a generic failure state
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Version transport | Required `x-api-version` header | URL path prefix (`/v2/hike/{id}`); `Accept` media type; default-to-v1 | A header keeps one route per resource and makes the version a cross-cutting concern the router does not model. Requiring it prevents a client from being silently pinned to the oldest shape forever, which would make the sunset date unenforceable. |
+| Version transport | Required `x-api-version` header | URL path prefix (`/v2/hike/{id}`); `Accept` media type; defaulting to the oldest version | A header keeps one route per resource and makes the version a cross-cutting concern the router does not model. Requiring it prevents a client from being silently pinned to the oldest shape forever, which would make the sunset date unenforceable. |
 | Key comparison | Plain equality | Constant-time comparison | Shared secret behind an edge WAF rule, not a signature check; timing analysis has no target. `[inferred]` |
 | `/health` auth | Unauthenticated | Same key as other endpoints | A liveness probe that fails when a secret is misconfigured cannot distinguish "down" from "misconfigured". `[inferred]` |
 | Version check on `/hike-locations` | Enforced despite version-independent payload | Skip negotiation entirely | A client with a bad version header should learn it from any endpoint, not just the one whose shape varies. |
@@ -132,6 +138,9 @@ Bodies are plain text, not JSON. The sole client renders a generic failure state
 | Contract testing | In-process schema conformance | Live calls against a deployed worker | Catches the failure that matters — types drifting from the published spec — at push time with no network, no deploy, and no flake. |
 | Deprecation headers on errors | Not stamped | Stamp on every response | An error response is not a served version; a `400` for a bad version has no version to describe. `[inferred]` |
 | Unrouted path | `501`, not `404` | `404` for anything unmatched | `404` is reserved for "that hike does not exist". Overloading it with "that URL does not exist" makes a client's two most likely mistakes indistinguishable. |
+| Routing versus admission order | An unrouted path answers before the API key is checked | Authenticate first, so route existence is never disclosed | Route shape is not a secret worth a branch: the endpoints are published in `openapi.yaml` and the WAF is the boundary that matters. |
+| Sunset version after its shape is deleted | Kept in the registry | Removed with the shape | The entry is what distinguishes a finished version from a nonexistent one, and so what makes `410` reachable rather than `400`. |
+| Missing map under a frozen version | `502` under v2, degraded under v3 | Degrade under both; fail under both | v2's shape has no way to say "no map", and a frozen shape is not corrected in place. |
 | Empty hike id | `404` | `400 missing hike id` | `/hike/` addresses the collection correctly and names nothing in it — a hike that does not exist, not a malformed request. |
 | Past-sunset version | `410` naming the supported versions | Keep serving it; `400` | A date that is advertised but never enforced teaches clients to ignore the header. Naming the live versions in the body means a stale build learns what to ask for without a doc lookup. |
 | Location mapping source | Embedded at compile time | An R2 object; a hard-coded match arm | The list changes a few times a year, and a new preserve needs a map uploaded anyway, so a deploy is already in the loop. Embedding gives the endpoint no failure mode and no storage read. |
@@ -155,7 +164,7 @@ Bodies are plain text, not JSON. The sole client renders a generic failure state
 
 ## References
 
-- `openapi.yaml` — the published v1/v2 contract.
+- `openapi.yaml` — the published contract for every served version.
 - [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594) — the `Sunset` HTTP header.
 - `docs/intent/hike-record/hike-record-design.md` — the `HikeStore` side of the contract.
-- `docs/intent/weather/weather-design.md` — the `WeatherSource` side, and the v1/v2 weather blocks.
+- `docs/intent/weather/weather-design.md` — the `WeatherSource` side, and the versioned weather blocks.

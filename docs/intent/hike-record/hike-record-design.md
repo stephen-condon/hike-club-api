@@ -52,17 +52,17 @@ Unknown fields in the JSON are ignored, so a record can carry annotations the wo
 
 ## Record Validation
 
-A record that parses is not yet a record that can be served. Two invariants are checked before the hike leaves this segment:
+A record that parses is not yet a record that can be served. Retrieval hands back a record whose timestamps are already parsed and checked, so that nothing downstream re-parses them or works with a range that cannot exist:
 
-| Invariant | Failure |
+| Invariant | Outcome when violated |
 |---|---|
-| `start` and `end` parse as RFC 3339 with offset | `Err` |
-| `end` is strictly after `start` | `Err` |
-| The object named by `mapKey` exists in the bucket | `Err` |
+| `start` and `end` parse as RFC 3339 with offset | `Err` — the hike is not served |
+| `end` is strictly after `start` | `Err` — the hike is not served |
+| The object named by `mapKey` exists in the bucket | The map is reported absent |
 
-All three fail the request rather than degrading it, because each one means the record describes a hike that cannot be walked: no time, a negative duration, or no map.
+The first two fail the request, because each means the record describes a hike that cannot be walked: no time, or a negative duration. Validating inside retrieval rather than in the caller means a record and its validity arrive together — there is no window in which a consumer holds an unchecked record.
 
-The map check is an existence probe — object metadata, not bytes — issued before the URL is signed. Signing is arithmetic and would happily produce a valid-looking URL for an object that was never uploaded, leaving the client to discover the mistake as a broken image. One metadata read per hike request is a Class B operation, which the free tier has ten million of a month against a pack that hikes monthly.
+The map is different. Its object is probed for existence — metadata, not bytes — before the URL is signed, because signing is arithmetic and would happily produce a valid-looking URL for an object that was never uploaded, leaving the client to discover the mistake as a broken image. But a hike with no map is still a hike worth showing, so a missing object is reported as an absent map rather than a failure, and the API surface decides what its version can say about that. One metadata read per hike request is a Class B operation, and the free tier allows ten million a month against a pack that hikes monthly.
 
 The publishing path is what catches an authoring mistake early; these checks are the backstop for when it does not. A record still carrying the template's `"start": "TODO"` fails here, correctly and loudly.
 
@@ -106,7 +106,9 @@ The presign TTL is a compile-time constant. It is the kind of value that only ch
 | Storage | R2 objects | D1; KV; Durable Objects | One organizer, roughly one hike a month, and a single-key access pattern. A database buys a schema and a migration story for nothing, and R2 already holds the map images. |
 | Record id | Location slug, no date | Date-prefixed id (`2026-09-20-blackwell`); UUID | Permanent `/hike/{id}` links across reschedules, and a bounded object count. Cost: no hike history, which the HLD accepts as a non-goal. |
 | Map delivery | Presigned URL, 1-hour TTL | Proxy bytes through the worker; public bucket | A 1MB PNG through the worker would spend CPU and bandwidth on every hike view. A public bucket would make maps readable without the API key. |
-| `mapKey` | Stored in the record, existence verified before signing | Derived from `id`; stored and trusted | Storing it allows a map off the conventional path without a schema change; verifying it means a missing upload surfaces as a server error naming the record, not as a broken image in the app. |
+| `mapKey` | Stored in the record, existence verified before signing | Derived from `id`; stored and trusted | Storing it allows a map off the conventional path without a schema change; verifying it means a missing upload is known to the server rather than discovered by the app as a broken image. |
+| Where validation runs | Inside record retrieval | In the caller, after retrieval | A record and its validity arrive together, so no consumer can hold an unchecked one. Retrieval returns parsed timestamps, which also removes the second parse the caller would otherwise perform. |
+| A missing map object | Reported as an absent map | Reported as an error | A hike with no map still gets the pack to the trailhead. What a given response version can say about an absent map is the API surface's decision, not this segment's. |
 | Time-range validation | `end` must be strictly after `start` | Trust the record; clamp silently | A reversed or zero-length range yields no in-window weather periods, so without the check the symptom is a hike that mysteriously has no weather rather than a record that is wrong. |
 | Presign TTL | Compile-time constant | Environment variable | Only changes if client caching behavior changes; a var invites per-environment drift. `[inferred]` |
 | Missing vs. malformed record | `Ok(None)` vs. `Err` | Treat both as not-found | A malformed record is an authoring fault; reporting it as `404` sends the organizer looking for a missing upload instead of a broken one. |
@@ -118,8 +120,9 @@ The presign TTL is a compile-time constant. It is the kind of value that only ch
 
 1. ✅ One record per location, overwritten on reschedule — permanent links over hike history.
 2. ✅ Presigned URLs over proxying map bytes — CPU and bandwidth are the binding constraint.
-3. ✅ `mapKey`'s object is verified to exist before its URL is signed.
+3. ✅ `mapKey`'s object is verified to exist before its URL is signed, and a missing object is an absent map rather than a failure.
 4. ✅ `end` must be strictly after `start`; a violation fails the request.
+5. ✅ Validation runs inside retrieval, so records are parsed and checked before any consumer sees them.
 
 ### Deferred
 

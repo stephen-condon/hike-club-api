@@ -28,7 +28,7 @@ A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond 
 
 ## Goals
 
-- One request returns everything a hike screen needs: time, meeting point with a Google Maps link, trails, a fetchable map URL, and interpreted weather.
+- One request returns everything a hike screen needs: time, meeting point with a Google Maps link, trails, a fetchable map URL, and interpreted weather — and returns the rest when one of those is unavailable.
 - P90 latency under 1s, P99 under 1.5s.
 - Weather alerts fire on the conditions a hike leader acts on, not on raw NWS categories.
 - A completed hike still returns weather — observed, not forecast — so the screen stays useful after the fact.
@@ -49,7 +49,7 @@ A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond 
 
 - **The free tier is a constraint, not a target.** When a feature would need paid Cloudflare or R2 capacity, the feature changes.
 - **Never break a shipped client.** New behavior gets a new `x-api-version`; a shipped version keeps its shape until its published sunset date.
-- **Degrade the auxiliary, never the core.** A hike's identity, time, meeting point, and map are always served; enrichments drop out of the response rather than failing it.
+- **Degrade the auxiliary, never the core.** A hike's identity, time, and meeting point are always served; everything that merely enriches them — weather, the trail map — drops out of the response rather than failing it.
 - **Thin runtime glue, pure testable core.** Anything that can only run inside a deployed worker stays a shim behind a trait; the logic it wraps is a pure function.
 
 ## System Design
@@ -64,7 +64,7 @@ flowchart TD
         Gate --> Orch["build_hike_response<br/>(api-surface)"]
         Orch --> Store["HikeStore<br/>(hike-record)"]
         Orch --> Wx["WeatherSource<br/>(weather)"]
-        Orch --> Shape["v1 / v2 response<br/>(api-surface)"]
+        Orch --> Shape["versioned response<br/>(api-surface)"]
     end
 
     Store -->|"hikes/{id}.json"| R2[(R2 bucket)]
@@ -80,13 +80,13 @@ Three arrow segments divide the worker:
 |---|---|---|
 | `api-surface` | `API` | Routing, API-key enforcement, version negotiation and the version registry, request orchestration, the versioned wire contract and its OpenAPI conformance, error-to-status mapping, `/hike-locations`, `/health`. |
 | `hike-record` | `HIKE` | The R2 object layout, hike-record retrieval, parsing and validation, SigV4 presigned map URLs and their TTL. |
-| `weather` | `WX` | Choosing forecast versus observations, NWS fetching and caching, response parsing, derived heat index / wind chill / precipitation alerts, and the v1 and v2 weather blocks. |
+| `weather` | `WX` | Choosing forecast versus observations, NWS fetching and caching, response parsing, derived heat index / wind chill / precipitation alerts, and the versioned weather blocks. |
 
 The boundaries follow the trait seams: `api-surface` depends on `hike-record` and `weather` only through `HikeStore` and `WeatherSource`, so a segment's internals can change without touching its siblings.
 
 ## Key Design Decisions
 
-**Rust on Workers rather than a Node or Python worker.** Wasm keeps cold starts and CPU time inside the free tier's limits, and the type system makes the v1/v2 response split a compile-time concern. The cost is a build toolchain (`worker-build`, a `reference-types` RUSTFLAG) and a runtime that cannot be exercised outside a deployed worker — which is why the coverage gate excludes the glue files rather than chasing them with integration tests.
+**Rust on Workers rather than a Node or Python worker.** Wasm keeps cold starts and CPU time inside the free tier's limits, and the type system makes the per-version response split a compile-time concern. The cost is a build toolchain (`worker-build`, a `reference-types` RUSTFLAG) and a runtime that cannot be exercised outside a deployed worker — which is why the coverage gate excludes the glue files rather than chasing them with integration tests.
 
 **R2 objects instead of a database.** One organizer schedules roughly one hike a month; the access pattern is a single key lookup. D1 or KV would add a schema and a migration story to buy nothing. R2 also holds the map images, so metadata and map live together.
 
@@ -94,7 +94,7 @@ The boundaries follow the trait seams: `api-surface` depends on `hike-record` an
 
 **Presigned R2 URLs over proxying map bytes.** Serving a 1MB PNG through the worker would burn CPU time and bandwidth on every hike view. A SigV4 query-signed URL with a 1-hour TTL lets the client fetch from R2 directly. Presigning is a pure function of `now`, so it is unit-testable without a wasm clock.
 
-**Required version header with no default.** A missing `x-api-version` is a 400 rather than an implicit v1. Defaulting means a client that never sends the header is silently pinned to the oldest shape forever, and the sunset date becomes unenforceable.
+**Required version header with no default.** A missing `x-api-version` is a 400 rather than an implicit oldest version. Defaulting means a client that never sends the header is silently pinned to the oldest shape forever, and the sunset date becomes unenforceable.
 
 **Weather is best-effort, structurally.** A weather failure yields `weatherAvailable: false` and a null `weather` block, never a non-200. The alternative — failing the request — would hide the meeting point and map behind an NWS outage, which is the one thing a family in a parking lot needs.
 
@@ -118,7 +118,7 @@ The boundaries follow the trait seams: `api-surface` depends on `hike-record` an
 
 ## References
 
-- `openapi.yaml` — the published v1/v2 response contract.
+- `openapi.yaml` — the published response contract for every served version.
 - `resources/hike-location-mapping.json` — location slug to display name, embedded at compile time and served verbatim by `GET /hike-locations`.
 - `location_based/` — per-location record templates staged for upload; R2 holds the live records.
 - `scripts/upload-hike.sh` — publishes a hike's metadata and map to R2.

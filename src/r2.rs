@@ -22,6 +22,7 @@ pub struct R2Config {
 
 /// Builds an R2 (S3-compatible) presigned GET URL via AWS SigV4 query signing.
 /// Pure function of `now` so it's unit-testable without a wasm/JS clock.
+// @spec HIKE-MAP-003, HIKE-MAP-004, HIKE-MAP-008
 pub fn presign_get_url(
     now: DateTime<Utc>,
     account_id: &str,
@@ -104,6 +105,7 @@ fn uri_encode(input: &str, encode_slash: bool) -> String {
 
 /// Encodes each path segment but preserves `/` separators, matching the object key
 /// as it appears in the canonical URI (bucket path is not re-encoded here).
+// @spec HIKE-MAP-007
 fn uri_path_encode(object_key: &str) -> String {
     object_key
         .split('/')
@@ -117,6 +119,7 @@ mod tests {
     use super::*;
     use chrono::TimeZone;
 
+    // @spec HIKE-REC-005
     #[test]
     fn hike_record_parses_from_expected_r2_json_shape() {
         let json = r#"{
@@ -134,6 +137,39 @@ mod tests {
         assert_eq!(record.trails, vec!["Blue Ridge Loop".to_string()]);
     }
 
+    /// Records may carry annotations the worker does not read; an unknown key
+    /// must not fail the whole record.
+    // @spec HIKE-REC-004
+    #[test]
+    fn hike_record_ignores_unknown_fields() {
+        let json = r#"{
+            "id": "blue-ridge",
+            "start": "2026-07-18T08:00:00-04:00",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png",
+            "notes": "bring bug spray",
+            "difficulty": 2
+        }"#;
+        let record: HikeRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(record.id, "blue-ridge");
+        assert_eq!(record.trails, vec!["Blue Ridge Loop".to_string()]);
+    }
+
+    /// SigV4 encodes each path segment but leaves the separators alone, so a key
+    /// with a space signs correctly and still addresses the same object.
+    // @spec HIKE-MAP-007
+    #[test]
+    fn object_key_segments_are_encoded_but_separators_are_not() {
+        assert_eq!(
+            uri_path_encode("hikes/st james farm/map.png"),
+            "hikes/st%20james%20farm/map.png"
+        );
+        assert_eq!(uri_path_encode("a~b-c_d.e"), "a~b-c_d.e");
+    }
+
+    // @spec HIKE-MAP-003, HIKE-MAP-004
     #[test]
     fn presigned_url_has_expected_shape() {
         let now = Utc.with_ymd_and_hms(2026, 7, 18, 9, 0, 0).unwrap();
@@ -154,6 +190,7 @@ mod tests {
         assert!(url.contains("X-Amz-Signature="));
     }
 
+    // @spec HIKE-MAP-008
     #[test]
     fn presigned_url_is_deterministic_for_same_inputs() {
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
@@ -162,6 +199,7 @@ mod tests {
         assert_eq!(a, b);
     }
 
+    // @spec HIKE-MAP-008
     #[test]
     fn presigned_url_changes_with_object_key() {
         let now = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();

@@ -2,6 +2,8 @@
 
 Prefix: `WX`. Design: [`weather-design.md`](weather-design.md).
 
+**Verification.** A spec marked `[x]` is cited by a test carrying its id in a `@spec` annotation. Where the behaviour lives in Workers-runtime glue — `src/lib.rs`, `src/r2_adapter.rs`, `src/weather_adapter.rs`, none of which can execute under `cargo test` — the citing test is an assertion in `scripts/smoke-test.sh`, which runs against the deployed preview worker. Specs describing layout conventions or structural properties rather than triggerable behaviour are cited at the code that embodies them and have no test of their own.
+
 ## Source selection and fetching
 
 - [x] **WX-SRC-001**: While a hike's end time is in the past, the system shall source its weather from National Weather Service station observations rather than the hourly forecast.
@@ -21,9 +23,12 @@ Prefix: `WX`. Design: [`weather-design.md`](weather-design.md).
 - [x] **WX-CACHE-001**: The system shall cache National Weather Service results in the Workers Cache API and serve a cached result in preference to fetching.
 - [ ] **WX-CACHE-002**: The system shall key a cached forecast by the meeting point's coordinates at four decimal places.
 - [ ] **WX-CACHE-003**: The system shall key cached observations by the meeting point's coordinates at four decimal places together with the hike's local calendar day.
+- [ ] **WX-CACHE-010**: The system shall receive the hike's UTC offset from its caller, so that the local calendar day used for observation cache keys is the same one used for precipitation timing.
 - [x] **WX-CACHE-004**: The system shall cache forecasts for 600 seconds and observations for 86400 seconds.
-- [x] **WX-CACHE-005**: If a freshly fetched weather result contains no periods, then the system shall return it without writing it to the cache.
-- [x] **WX-CACHE-006**: If a cached weather entry contains no periods, then the system shall treat it as a cache miss and fetch again.
+- [x] **WX-CACHE-005**: If a freshly fetched forecast contains no periods, then the system shall return it without writing it to the cache, because an empty forecast is an upstream gap rather than an answer.
+- [x] **WX-CACHE-006**: If a cached forecast entry contains no periods, then the system shall treat it as a cache miss and fetch again.
+- [ ] **WX-CACHE-008**: When observation sourcing yields no periods after every station permitted by WX-SRC-008 has been tried, the system shall cache that empty result for the observation cache lifetime, because a completed hike's absent readings will not appear later.
+- [ ] **WX-CACHE-009**: When a cached observation entry contains no periods, the system shall serve it as an answer rather than treating it as a cache miss.
 - [x] **WX-CACHE-007**: The system shall cache the full hourly forecast for a point rather than the periods filtered to one hike's window.
 
 ## Parsing
@@ -59,14 +64,11 @@ Prefix: `WX`. Design: [`weather-design.md`](weather-design.md).
 - [x] **WX-ALERT-007**: When a hike's reported wind chill is below 32°F, the system shall raise a `wind_chill` alert naming that value.
 - [x] **WX-ALERT-008**: The system shall emit a hike's alerts in the order precipitation, National Weather Service alerts, heat index, wind chill.
 - [x] **WX-ALERT-009**: The system shall tag each alert with a kind of `precip`, `nws_alert`, `heat_index`, or `wind_chill`.
-- [x] **WX-ALERT-010**: Under API version 1 the system shall include every National Weather Service alert active at the meeting point, without filtering by time.
-- [x] **WX-ALERT-011**: Under API versions 2 and 3 the system shall include only those National Weather Service alerts whose validity window overlaps the hike window, treating a missing bound as open-ended on that side.
+- [x] **WX-ALERT-011**: Under every API version it serves, the system shall include only those National Weather Service alerts whose validity window overlaps the hike window, treating a missing bound as open-ended on that side.
 - [x] **WX-ALERT-012**: While a hike's weather is sourced from station observations, the system shall report no National Weather Service alerts.
 
 ## Version output
 
-- [x] **WX-OUT-001**: Under API version 1 the system shall report temperature as the first in-window period's temperature and conditions as that period's condition phrase.
-- [x] **WX-OUT-002**: Under API version 1 the system shall report precipitation amount as 0.0 inches.
 - [x] **WX-OUT-003**: Under API versions 2 and 3 the system shall report `startTempF` from the first in-window period and `endTempF` from the last.
 - [x] **WX-OUT-004**: Under API version 2 the system shall report conditions as the first in-window period's condition phrase.
 - [ ] **WX-OUT-005**: Under API version 3 the system shall report `startConditions` from the first in-window period's condition phrase and `endConditions` from the last in-window period's condition phrase.

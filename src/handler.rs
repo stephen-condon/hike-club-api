@@ -14,6 +14,8 @@ pub enum VersionedHike {
 /// Pure orchestration: fetch hike metadata + the full forecast, assemble the
 /// version-appropriate response. Generic over both traits so tests inject
 /// fixtures with zero network.
+// @spec API-RESP-001, API-RESP-002, API-RESP-003, API-RESP-004, API-RESP-005,
+// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009
 pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     store: &S,
     weather_source: &W,
@@ -103,6 +105,22 @@ mod tests {
         }
     }
 
+    /// A store whose reads fail, for the path that must not degrade.
+    struct FailingStore;
+
+    impl HikeStore for FailingStore {
+        async fn get_hike(&self, _id: &str) -> Result<Option<HikeRecord>, String> {
+            Err("r2 unavailable".to_string())
+        }
+
+        async fn presign_map_url(
+            &self,
+            _map_key: &str,
+        ) -> Result<(String, chrono::DateTime<chrono::Utc>), String> {
+            Err("r2 unavailable".to_string())
+        }
+    }
+
     struct FixtureWeather {
         result: Result<RawForecast, String>,
     }
@@ -158,6 +176,7 @@ mod tests {
         }
     }
 
+    // @spec API-RESP-004
     #[tokio::test]
     async fn missing_hike_returns_none() {
         let store = FixtureStore { record: None };
@@ -170,6 +189,7 @@ mod tests {
         assert!(result.is_none());
     }
 
+    // @spec API-RESP-005, API-RESP-006
     #[tokio::test]
     async fn found_hike_with_weather_failure_is_best_effort() {
         let store = FixtureStore {
@@ -187,6 +207,7 @@ mod tests {
         assert_eq!(response.id, "blue-ridge");
     }
 
+    // @spec API-RESP-006
     #[tokio::test]
     async fn v1_populates_weather() {
         let store = FixtureStore {
@@ -203,6 +224,132 @@ mod tests {
         assert_eq!(response.weather.unwrap().conditions, "Partly Cloudy");
     }
 
+    /// The record's timestamps reach the response untouched — offset included —
+    /// so the app renders local time without knowing the preserve's timezone.
+    // @spec API-RESP-002
+    #[tokio::test]
+    async fn start_and_end_are_echoed_verbatim_with_their_offset() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+            .await
+            .unwrap()
+            .unwrap());
+        assert_eq!(response.start, "2026-07-18T08:00:00-04:00");
+        assert_eq!(response.end, "2026-07-18T12:00:00-04:00");
+    }
+
+    /// The client gets a ready-to-open maps link rather than composing one.
+    // @spec API-RESP-003
+    #[tokio::test]
+    async fn meeting_point_carries_a_google_maps_url() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+            .await
+            .unwrap()
+            .unwrap());
+        assert_eq!(response.meeting_point.lat, 37.6);
+        assert_eq!(response.meeting_point.lon, -79.2);
+        assert_eq!(
+            response.meeting_point.google_maps_url,
+            "https://maps.google.com/?q=37.6,-79.2"
+        );
+    }
+
+    /// Every envelope field a hike screen needs is present in one response.
+    // @spec API-RESP-001
+    #[tokio::test]
+    async fn a_found_hike_returns_the_full_envelope() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+            .await
+            .unwrap()
+            .unwrap());
+        assert_eq!(response.id, "blue-ridge");
+        assert_eq!(response.trails, vec!["Blue Ridge Loop".to_string()]);
+        assert_eq!(response.map.url, "https://example.com/map.png");
+        assert!(!response.map.expires_at.is_empty());
+        assert!(response.weather_available);
+    }
+
+    /// Storage failure is not weather: it ends the request rather than degrading,
+    /// because the core of a hike screen cannot be assembled without it.
+    /// A record still carrying the upload template's placeholder dates must fail
+    /// loudly rather than surfacing as a hike with mysteriously no weather.
+    // @spec HIKE-REC-006
+    #[tokio::test]
+    async fn an_unparseable_start_fails_the_request() {
+        let mut record = sample_record();
+        record.start = "TODO".to_string();
+        let store = FixtureStore {
+            record: Some(record),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V1).await else {
+            panic!("expected an unparseable start to fail the request");
+        };
+        assert!(!err.is_empty());
+    }
+
+    /// The record's offset has to reach the v2 builder, which reports precip
+    /// timing in it — a UTC-normalised instant would lose the hiker's day.
+    // @spec API-RESP-008
+    #[tokio::test]
+    async fn the_records_offset_reaches_the_v2_weather_block() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let mut forecast = sample_forecast();
+        forecast.periods[0].precip_prob_pct = 80;
+        let weather = FixtureWeather {
+            result: Ok(forecast),
+        };
+        let response = build_hike_response(&store, &weather, "x", ApiVersion::V2)
+            .await
+            .unwrap()
+            .unwrap();
+        match response {
+            VersionedHike::V2(r) => {
+                let starts_at = r.weather.unwrap().precipitation.starts_at.unwrap();
+                assert!(
+                    starts_at.ends_with("-04:00"),
+                    "expected the record's offset, got {starts_at}"
+                );
+            }
+            VersionedHike::V1(_) => panic!("expected v2 response"),
+        }
+    }
+
+    // @spec API-RESP-007
+    #[tokio::test]
+    async fn store_failure_fails_the_request_rather_than_degrading() {
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V1).await;
+        let Err(err) = result else {
+            panic!("expected storage failure to fail the request");
+        };
+        assert_eq!(err, "r2 unavailable");
+    }
+
+    // @spec API-WIRE-003, WX-OUT-003
     #[tokio::test]
     async fn v2_returns_v2_shape() {
         let store = FixtureStore {
