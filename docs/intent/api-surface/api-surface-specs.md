@@ -8,7 +8,7 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 
 - [x] **API-ROUTE-001**: The system shall serve `GET /health` without an API key or version header, responding 200 with the body `ok`.
 - [x] **API-ROUTE-002**: If a request names a path the system does not route, then the system shall respond 501 with `not implemented`.
-- [ ] **API-ROUTE-003**: If a request names a routed path with a method that path does not support, then the system shall respond 405 with `method not allowed` and an `Allow` header naming the supported methods.
+- [x] **API-ROUTE-003**: If a request names a routed path with a method that path does not support, then the system shall respond 405 with `method not allowed` and an `Allow` header naming the supported methods.
 - [x] **API-ROUTE-004**: When a request names `/hike` or `/hike/` with no hike id, the system shall respond 404 with `hike not found`.
 - [ ] **API-ROUTE-005**: The system shall answer an unrouted path or unsupported method before evaluating the API key, so that routing outcomes do not depend on authentication.
 
