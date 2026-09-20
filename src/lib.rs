@@ -29,21 +29,26 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 
     let router = Router::new();
     router
-        .get_async("/health", |_, _| async { Response::ok("ok") })
-        .get_async("/hike/:id", |req, ctx| async move {
+        .on_async("/health", |req, _| async move {
+            if req.method() != Method::Get {
+                return method_not_allowed();
+            }
+            Response::ok("ok")
+        })
+        .on_async("/hike/:id", |req, ctx| async move {
             handle_hike(req, ctx).await
         })
         // Both spellings of the id-less collection path reach the same handler,
         // which answers 404 once admission has run.
-        .get_async(
+        .on_async(
             "/hike",
             |req, ctx| async move { handle_hike(req, ctx).await },
         )
-        .get_async(
+        .on_async(
             "/hike/",
             |req, ctx| async move { handle_hike(req, ctx).await },
         )
-        .get_async("/hike-locations", |req, ctx| async move {
+        .on_async("/hike-locations", |req, ctx| async move {
             handle_hike_locations(req, ctx).await
         })
         // The bare root is registered alongside the wildcard because matchit's
@@ -59,6 +64,17 @@ async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
 // @spec API-ROUTE-002
 fn not_implemented() -> Result<Response> {
     Response::error("not implemented", 501)
+}
+
+/// A routed path under a method it does not serve. GET is the only method any
+/// route serves, so `Allow` is constant. The `worker` Router's own 405 carries
+/// no `Allow` and cannot be customised, so every route is registered for all
+/// methods and guarded by its handler instead.
+// @spec API-ROUTE-003
+fn method_not_allowed() -> Result<Response> {
+    let mut resp = Response::error("method not allowed", 405)?;
+    resp.headers_mut().set("Allow", "GET")?;
+    Ok(resp)
 }
 
 /// Reads and validates the `x-api-version` header. `Ok(version)` on success;
@@ -88,8 +104,12 @@ fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response>
     Ok(resp)
 }
 
-// @spec API-AUTH-002, API-VER-003, API-LOC-001, API-LOC-002, API-LOC-003
+// @spec API-ROUTE-003, API-AUTH-002, API-VER-003, API-LOC-001, API-LOC-002, API-LOC-003
 async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    if req.method() != Method::Get {
+        return method_not_allowed();
+    }
+
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),
         Err(_) => return Response::error("server misconfigured: API_KEY not set", 500),
@@ -110,8 +130,12 @@ async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Re
     with_deprecation(resp, version)
 }
 
-// @spec API-ROUTE-001, API-ROUTE-004, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
+// @spec API-ROUTE-001, API-ROUTE-003, API-ROUTE-004, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006
 async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
+    if req.method() != Method::Get {
+        return method_not_allowed();
+    }
+
     let expected_key = match ctx.env.secret("API_KEY") {
         Ok(s) => s.to_string(),
         Err(_) => return Response::error("server misconfigured: API_KEY not set", 500),
