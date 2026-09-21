@@ -61,7 +61,9 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
                 weather,
             })
         }
-        ApiVersion::V2 => {
+        // ponytail: v3 renders v2's shape until API-WIRE-004 and API-WIRE-009
+        // give it its own weather block and nullable map.
+        ApiVersion::V2 | ApiVersion::V3 => {
             let weather = raw.and_then(|raw| build_weather_v2(raw, start, end, offset));
             VersionedHike::V2(HikeResponseV2 {
                 id: record.id,
@@ -370,5 +372,22 @@ mod tests {
             }
             VersionedHike::V1(_) => panic!("expected v2 response"),
         }
+    }
+
+    /// v3 is the current version and is served; its own weather and map
+    /// shapes are API-WIRE-004 and API-WIRE-009.
+    // @spec API-VER-008
+    #[tokio::test]
+    async fn v3_is_served() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response = build_hike_response(&store, &weather, "x", ApiVersion::V3)
+            .await
+            .unwrap();
+        assert!(response.is_some());
     }
 }

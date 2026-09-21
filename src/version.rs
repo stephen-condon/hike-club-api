@@ -11,6 +11,7 @@ pub const API_VERSION_HEADER: &str = "x-api-version";
 pub enum ApiVersion {
     V1,
     V2,
+    V3,
 }
 
 /// The version registry: every version the system knows, the header value that
@@ -21,10 +22,11 @@ pub enum ApiVersion {
 /// makes a request naming it a 410 rather than the 400 given to a version that
 /// never existed. Whether a dated version is merely deprecated or already gone
 /// is not recorded but derived from the current time; see `status`.
-// @spec API-VER-004
+// @spec API-VER-004, API-VER-008
 const REGISTRY: &[(ApiVersion, &str, Option<&str>)] = &[
     (ApiVersion::V1, "1", Some("Thu, 20 Aug 2026 00:00:00 GMT")),
-    (ApiVersion::V2, "2", None),
+    (ApiVersion::V2, "2", Some("Wed, 18 Nov 2026 00:00:00 GMT")),
+    (ApiVersion::V3, "3", None),
 ];
 
 /// Where a version stands at a given instant.
@@ -123,24 +125,34 @@ mod tests {
     fn known_versions_parse() {
         assert_eq!(parse_version(Some("1")), Ok(ApiVersion::V1));
         assert_eq!(parse_version(Some("2")), Ok(ApiVersion::V2));
+        assert_eq!(parse_version(Some("3")), Ok(ApiVersion::V3));
     }
 
     // @spec API-VER-002
     #[test]
     fn unknown_or_nonnumeric_versions_are_rejected() {
-        assert_eq!(parse_version(Some("3")), Err(()));
+        assert_eq!(parse_version(Some("4")), Err(()));
         assert_eq!(parse_version(Some("v2")), Err(()));
         assert_eq!(parse_version(Some("")), Err(()));
     }
 
-    // @spec API-VER-006
+    // @spec API-VER-008
     #[test]
-    fn v1_is_deprecated() {
+    fn v1_is_sunset_v2_is_deprecated_and_v3_is_current() {
+        let now = at(2026, 9, 20);
         assert_eq!(
-            sunset(ApiVersion::V1),
-            Some("Thu, 20 Aug 2026 00:00:00 GMT")
+            status(ApiVersion::V1, now),
+            Status::Sunset {
+                sunset: "Thu, 20 Aug 2026 00:00:00 GMT"
+            }
         );
-        assert!(sunset(ApiVersion::V2).is_none());
+        assert_eq!(
+            status(ApiVersion::V2, now),
+            Status::Deprecated {
+                sunset: "Wed, 18 Nov 2026 00:00:00 GMT"
+            }
+        );
+        assert_eq!(status(ApiVersion::V3, now), Status::Current);
     }
 
     /// A typo in a registry date must fail here rather than silently reading as
@@ -161,7 +173,7 @@ mod tests {
     // @spec API-VER-004
     #[test]
     fn a_version_with_no_sunset_is_current() {
-        assert_eq!(status(ApiVersion::V2, at(2026, 9, 20)), Status::Current);
+        assert_eq!(status(ApiVersion::V3, at(2026, 9, 20)), Status::Current);
     }
 
     // @spec API-VER-004, API-VER-006
@@ -189,8 +201,9 @@ mod tests {
     // @spec API-VER-005
     #[test]
     fn live_versions_exclude_the_sunset_ones() {
-        assert_eq!(live_versions(at(2026, 8, 19)), vec!["1", "2"]);
-        assert_eq!(live_versions(at(2026, 8, 20)), vec!["2"]);
+        assert_eq!(live_versions(at(2026, 8, 19)), vec!["1", "2", "3"]);
+        assert_eq!(live_versions(at(2026, 8, 20)), vec!["2", "3"]);
+        assert_eq!(live_versions(at(2026, 11, 18)), vec!["3"]);
     }
 
     // @spec API-VER-005
@@ -199,7 +212,7 @@ mod tests {
         assert_eq!(
             gone_body(ApiVersion::V1, at(2026, 9, 20)).as_deref(),
             Some(
-                "api version 1 was sunset on Thu, 20 Aug 2026 00:00:00 GMT; supported versions: 2"
+                "api version 1 was sunset on Thu, 20 Aug 2026 00:00:00 GMT; supported versions: 2, 3"
             )
         );
     }
@@ -209,5 +222,6 @@ mod tests {
     fn a_version_that_is_not_sunset_gets_no_body() {
         assert_eq!(gone_body(ApiVersion::V1, at(2026, 8, 19)), None);
         assert_eq!(gone_body(ApiVersion::V2, at(2026, 9, 20)), None);
+        assert_eq!(gone_body(ApiVersion::V3, at(2026, 9, 20)), None);
     }
 }
