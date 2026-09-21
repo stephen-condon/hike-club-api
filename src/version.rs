@@ -22,7 +22,7 @@ pub enum ApiVersion {
 /// makes a request naming it a 410 rather than the 400 given to a version that
 /// never existed. Whether a dated version is merely deprecated or already gone
 /// is not recorded but derived from the current time; see `status`.
-// @spec API-VER-004, API-VER-008
+// @spec API-VER-004, API-VER-008, API-VER-009
 const REGISTRY: &[(ApiVersion, &str, Option<&str>)] = &[
     (ApiVersion::V1, "1", Some("Thu, 20 Aug 2026 00:00:00 GMT")),
     (ApiVersion::V2, "2", Some("Wed, 18 Nov 2026 00:00:00 GMT")),
@@ -223,5 +223,15 @@ mod tests {
         assert_eq!(gone_body(ApiVersion::V1, at(2026, 8, 19)), None);
         assert_eq!(gone_body(ApiVersion::V2, at(2026, 9, 20)), None);
         assert_eq!(gone_body(ApiVersion::V3, at(2026, 9, 20)), None);
+    }
+
+    /// Sunset is not the same as unknown: v1 still parses, so it reaches the
+    /// 410 check instead of the 400 given to a version that never existed.
+    // @spec API-VER-009
+    #[test]
+    fn a_sunset_version_stays_known_and_answers_gone() {
+        assert_eq!(parse_version(Some("1")), Ok(ApiVersion::V1));
+        assert!(gone_body(ApiVersion::V1, at(2026, 9, 20)).is_some());
+        assert_eq!(parse_version(Some("99")), Err(()));
     }
 }
