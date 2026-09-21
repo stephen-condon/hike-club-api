@@ -26,7 +26,7 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 - [x] **API-VER-002**: If the `x-api-version` header is absent, names a version the system does not know, or is not an integer, then the system shall respond 400 with `unsupported api version`.
 - [x] **API-VER-003**: The system shall serve `GET /hike-locations` with an identical payload under every supported version, while still rejecting an unsupported version per API-VER-002.
 - [x] **API-VER-004**: The system shall hold a version registry recording, for each known API version, whether it is current, deprecated with a sunset date, or already sunset.
-- [ ] **API-VER-005**: While the requested API version's sunset date is at or before the current time, the system shall respond 410 with a body naming that version, its sunset date, and the API versions not past their sunset.
+- [x] **API-VER-005**: While the requested API version's sunset date is at or before the current time, the system shall respond 410 with a body naming that version, its sunset date, and the API versions not past their sunset.
 - [x] **API-VER-006**: While the requested API version is deprecated and its sunset date is in the future, the system shall serve the response in full and stamp `Deprecation: true`, a `Sunset` header carrying that version's date, and a `Link` header referencing the OpenAPI document with `rel="deprecation"`.
 - [x] **API-VER-007**: The system shall stamp `Deprecation`, `Sunset`, and `Link` headers only on successful responses, and on no error response.
 - [ ] **API-VER-008**: The system shall record API version 1 as sunset on `Thu, 20 Aug 2026 00:00:00 GMT`, API version 2 as deprecated with a sunset of `Wed, 18 Nov 2026 00:00:00 GMT`, and API version 3 as current.

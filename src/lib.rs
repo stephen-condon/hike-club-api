@@ -13,9 +13,10 @@ mod weather;
 mod weather_adapter;
 
 use auth::{API_KEY_HEADER, is_authorized};
+use chrono::DateTime;
 use handler::{VersionedHike, build_hike_response};
 use r2_adapter::{R2HikeStore, load_r2_config};
-use version::{API_VERSION_HEADER, ApiVersion, parse_version, sunset};
+use version::{API_VERSION_HEADER, ApiVersion, gone_body, parse_version, sunset};
 use weather_adapter::NwsWeatherSource;
 use worker::*;
 
@@ -78,14 +79,27 @@ fn method_not_allowed() -> Result<Response> {
 }
 
 /// Reads and validates the `x-api-version` header. `Ok(version)` on success;
-/// `Err(response)` is a ready-to-return 400 for an unsupported version.
-// @spec API-VER-001, API-VER-002
+/// `Err(response)` is a ready-to-return 400 for an unsupported version, or a
+/// 410 for one past its sunset. The 410 carries no `Sunset` header: the sunset
+/// is the whole message and it is spelled out in the body (API-VER-007).
+// @spec API-VER-001, API-VER-002, API-VER-005
 fn negotiate_version(req: &Request) -> std::result::Result<ApiVersion, Response> {
     let header = req.headers().get(API_VERSION_HEADER).ok().flatten();
-    parse_version(header.as_deref()).map_err(|()| {
+    let version = parse_version(header.as_deref()).map_err(|()| {
         Response::error("unsupported api version", 400)
             .unwrap_or_else(|_| Response::empty().unwrap())
-    })
+    })?;
+
+    // An unreadable clock falls back to the epoch, under which nothing is
+    // sunset: a broken clock degrades to serving a version, never to 410-ing
+    // every one of them.
+    let now = DateTime::from_timestamp_millis(Date::now().as_millis() as i64).unwrap_or_default();
+    match gone_body(version, now) {
+        Some(body) => {
+            Err(Response::error(body, 410).unwrap_or_else(|_| Response::empty().unwrap()))
+        }
+        None => Ok(version),
+    }
 }
 
 /// Stamps RFC 8594 deprecation headers when the served version is deprecated.
