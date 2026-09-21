@@ -5,6 +5,7 @@
 
 use hike_club_api::models::{
     Alert, HikeLocation, HikeResponseV2, MapRef, MeetingPoint, PrecipitationV2, WeatherV2,
+    WeatherV3,
 };
 
 const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
@@ -229,4 +230,27 @@ fn openapi_publishes_v3_and_drops_v1() {
         !validator.is_valid(&with_v2_conditions),
         "endConditions must be required"
     );
+}
+
+/// The v3 weather block pairs conditions with the temperatures at both ends of
+/// the window, and carries no v2 `conditions` field.
+// @spec API-WIRE-004, API-WIRE-007
+#[test]
+fn v3_weather_block_matches_spec() {
+    let validator = validator_for("WeatherV3");
+    let v2 = sample_weather_v2();
+    let w = WeatherV3 {
+        start_temp_f: v2.start_temp_f,
+        end_temp_f: v2.end_temp_f,
+        start_conditions: "Sunny".to_string(),
+        end_conditions: "Thunderstorms".to_string(),
+        precipitation: v2.precipitation,
+        heat_index_f: v2.heat_index_f,
+        wind_chill_f: v2.wind_chill_f,
+        alerts: v2.alerts,
+    };
+    let instance = serde_json::to_value(&w).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+    assert!(instance.get("conditions").is_none());
 }

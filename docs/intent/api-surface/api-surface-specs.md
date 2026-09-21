@@ -61,7 +61,7 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 
 - [x] **API-WIRE-001**: The system shall render the response envelope — `id`, `start`, `end`, `meetingPoint`, `trails`, `map`, `weatherAvailable`, `weather` — under every API version it serves.
 - [x] **API-WIRE-003**: Under API version 2 the system shall render the weather block with `startTempF`, `endTempF`, `conditions`, `precipitation` carrying `probabilityPct`, `expected`, `startsAt`, and `endsAt`, plus `heatIndexF`, `windChillF`, and `alerts`.
-- [ ] **API-WIRE-004**: Under API version 3 the system shall render the weather block as API version 2's, replacing `conditions` with `startConditions` and `endConditions`.
+- [x] **API-WIRE-004**: Under API version 3 the system shall render the weather block as API version 2's, replacing `conditions` with `startConditions` and `endConditions`.
 - [ ] **API-WIRE-009**: Under API version 3 the system shall render `map` as nullable and add a `mapAvailable` flag to the envelope.
 - [x] **API-WIRE-005**: The system shall render `map`, when present, as a presigned URL and an `expiresAt` timestamp in RFC 3339.
 - [x] **API-WIRE-006**: The system shall render error response bodies as plain text rather than JSON.

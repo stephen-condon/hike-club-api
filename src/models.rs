@@ -74,6 +74,27 @@ pub struct HikeLocation {
     pub full_name: String,
 }
 
+/// v3 weather block: v2's, with conditions reported at both ends of the hike
+/// window so they read the same way as the temperatures beside them.
+// @spec API-WIRE-004
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeatherV3 {
+    #[serde(rename = "startTempF")]
+    pub start_temp_f: f64,
+    #[serde(rename = "endTempF")]
+    pub end_temp_f: f64,
+    #[serde(rename = "startConditions")]
+    pub start_conditions: String,
+    #[serde(rename = "endConditions")]
+    pub end_conditions: String,
+    pub precipitation: PrecipitationV2,
+    #[serde(rename = "heatIndexF")]
+    pub heat_index_f: Option<f64>,
+    #[serde(rename = "windChillF")]
+    pub wind_chill_f: Option<f64>,
+    pub alerts: Vec<Alert>,
+}
+
 /// Raw hike metadata as stored in R2 at `hikes/{id}.json`, where `id` is the
 /// location slug (a `short_name` from the location list) with no
 /// date component — one record per location, rewritten in place when that location
