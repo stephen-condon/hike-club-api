@@ -159,7 +159,7 @@ check_header "locations carry a json content-type" '^content-type:.*application/
 # across the versions still served, which is what "every supported version"
 # means: a sunset version answers 410 and has no payload to compare. Add each
 # new version here as it is registered.
-live_versions=(2)
+live_versions=(2 3)
 for v in "${live_versions[@]}"; do
   curl -s -H "x-api-key: $api_key" -H "x-api-version: $v" \
     "${base_url}/hike-locations" > "$body_file.v$v"
@@ -194,6 +194,24 @@ else
   echo "  FAIL map is not a presigned url with an expiry" >&2
   sed 's/^/       /' "$body_file" >&2
   failures=$((failures + 1))
+fi
+
+# @spec API-VER-006, API-VER-008 — v2 is deprecated: served in full, with its
+# sunset advertised in RFC 8594 headers.
+check_status "hike under deprecated v2" 200 "/hike/smoke-test" \
+  -H "x-api-key: $api_key" -H "x-api-version: 2"
+check_header "v2 carries Deprecation" '^deprecation: true'
+check_header "v2 carries its Sunset date" '^sunset: Wed, 18 Nov 2026 00:00:00 GMT'
+check_header "v2 links the deprecation doc" '^link:.*rel="deprecation"'
+
+# @spec API-VER-008 — v3 is current: served, with no deprecation headers.
+check_status "hike under current v3" 200 "/hike/smoke-test" \
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
+if grep -qiE '^(deprecation|sunset):' "$head_file"; then
+  echo "  FAIL v3 carries deprecation headers" >&2
+  failures=$((failures + 1))
+else
+  echo "  ok   v3 carries no deprecation headers"
 fi
 
 if [ "$failures" -ne 0 ]; then
