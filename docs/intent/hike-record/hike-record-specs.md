@@ -21,12 +21,12 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 
 ## Location list
 
-- [ ] **HIKE-LOC-001**: When the location list is requested, the system shall read the R2 object `resources/hike-locations.json` through the `HIKES` binding.
-- [ ] **HIKE-LOC-002**: If no object exists at `resources/hike-locations.json`, then the system shall report the location list as absent rather than as an error.
-- [ ] **HIKE-LOC-003**: If the object at `resources/hike-locations.json` carries no body, or does not deserialize into a JSON array of objects each carrying string `short_name` and `full_name` fields, then the system shall report an error rather than reporting the list as absent.
-- [ ] **HIKE-LOC-004**: When the location list is read, the system shall return its entries in stored order.
-- [ ] **HIKE-LOC-005**: The system shall accept an empty array at `resources/hike-locations.json` as a valid, empty location list.
-- [ ] **HIKE-LOC-006**: The system shall ignore fields on a location-list entry other than `short_name` and `full_name`.
+- [x] **HIKE-LOC-001**: When the location list is requested, the system shall read the R2 object `resources/hike-locations.json` through the `HIKES` binding.
+- [x] **HIKE-LOC-002**: If no object exists at `resources/hike-locations.json`, then the system shall report the location list as absent rather than as an error.
+- [x] **HIKE-LOC-003**: If the object at `resources/hike-locations.json` carries no body, or does not deserialize into a JSON array of objects each carrying string `short_name` and `full_name` fields, then the system shall report an error rather than reporting the list as absent.
+- [x] **HIKE-LOC-004**: When the location list is read, the system shall return its entries in stored order.
+- [x] **HIKE-LOC-005**: The system shall accept an empty array at `resources/hike-locations.json` as a valid, empty location list.
+- [x] **HIKE-LOC-006**: The system shall ignore fields on a location-list entry other than `short_name` and `full_name`.
 
 ## Record validation
 
@@ -50,4 +50,4 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 ## Configuration
 
 - [x] **HIKE-CFG-001**: The system shall read `R2_ACCOUNT_ID` and `R2_BUCKET_NAME` from environment variables, and `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from secrets.
-- [ ] **HIKE-CFG-002**: The system shall read hike records and the location list through the `HIKES` R2 binding and mint presigned map URLs through the R2 API credentials.
+- [x] **HIKE-CFG-002**: The system shall read hike records and the location list through the `HIKES` R2 binding and mint presigned map URLs through the R2 API credentials.

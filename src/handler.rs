@@ -10,6 +10,24 @@ pub enum VersionedHike {
     V2(HikeResponseV2),
 }
 
+/// `GET /hike-locations` past admission, as status and body. The list comes
+/// only from the store: there is no compiled-in copy to fall back on.
+// @spec API-LOC-001, API-LOC-005, API-LOC-006, API-LOC-007
+pub async fn build_locations_response<S: HikeStore>(store: &S) -> (u16, String) {
+    match store.get_locations().await {
+        // A list of plain strings has nothing that can fail to serialize.
+        Ok(Some(list)) => (
+            200,
+            serde_json::to_string(&list).expect("strings serialize"),
+        ),
+        Ok(None) => (
+            500,
+            "server misconfigured: location list not found".to_string(),
+        ),
+        Err(e) => (502, format!("upstream error: {e}")),
+    }
+}
+
 /// Pure orchestration: fetch hike metadata + the full forecast, assemble the
 /// version-appropriate response. Generic over both traits so tests inject
 /// fixtures with zero network.
@@ -79,7 +97,7 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{HikeRecord, MeetingCoords};
+    use crate::models::{HikeLocation, HikeRecord, MeetingCoords};
     use crate::weather::RawForecast;
 
     struct FixtureStore {
@@ -100,10 +118,91 @@ mod tests {
                 chrono::Utc::now(),
             )))
         }
+
+        async fn get_locations(&self) -> Result<Option<Vec<HikeLocation>>, String> {
+            unreachable!("the hike path reads no location list")
+        }
     }
 
     /// A store whose reads fail, for the path that must not degrade.
     struct FailingStore;
+
+    /// A store holding only a location-list outcome.
+    struct LocationsStore(Result<Option<Vec<HikeLocation>>, String>);
+
+    impl HikeStore for LocationsStore {
+        async fn get_hike(&self, _id: &str) -> Result<Option<HikeRecord>, String> {
+            unreachable!("the locations path reads no hike")
+        }
+
+        async fn presign_map_url(
+            &self,
+            _map_key: &str,
+        ) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, String> {
+            unreachable!("the locations path presigns nothing")
+        }
+
+        async fn get_locations(&self) -> Result<Option<Vec<HikeLocation>>, String> {
+            self.0.clone()
+        }
+    }
+
+    fn location(short: &str, full: &str) -> HikeLocation {
+        HikeLocation {
+            short_name: short.to_string(),
+            full_name: full.to_string(),
+        }
+    }
+
+    // @spec API-LOC-001
+    #[tokio::test]
+    async fn locations_are_served_as_a_json_array_in_stored_order() {
+        let store = LocationsStore(Ok(Some(vec![
+            location("oakhurst", "Oakhurst"),
+            location("blackwell", "Blackwell"),
+        ])));
+        assert_eq!(
+            build_locations_response(&store).await,
+            (
+                200,
+                r#"[{"short_name":"oakhurst","full_name":"Oakhurst"},{"short_name":"blackwell","full_name":"Blackwell"}]"#
+                    .to_string()
+            )
+        );
+    }
+
+    // @spec API-LOC-001, HIKE-LOC-005
+    #[tokio::test]
+    async fn an_empty_location_list_is_served() {
+        let store = LocationsStore(Ok(Some(vec![])));
+        assert_eq!(
+            build_locations_response(&store).await,
+            (200, "[]".to_string())
+        );
+    }
+
+    // @spec API-LOC-005
+    #[tokio::test]
+    async fn an_absent_location_list_is_misconfiguration() {
+        let store = LocationsStore(Ok(None));
+        assert_eq!(
+            build_locations_response(&store).await,
+            (
+                500,
+                "server misconfigured: location list not found".to_string()
+            )
+        );
+    }
+
+    // @spec API-LOC-006, API-LOC-007
+    #[tokio::test]
+    async fn an_unreadable_location_list_is_an_upstream_error() {
+        let store = LocationsStore(Err("bad json".to_string()));
+        assert_eq!(
+            build_locations_response(&store).await,
+            (502, "upstream error: bad json".to_string())
+        );
+    }
 
     impl HikeStore for FailingStore {
         async fn get_hike(&self, _id: &str) -> Result<Option<HikeRecord>, String> {
@@ -115,6 +214,10 @@ mod tests {
             _map_key: &str,
         ) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, String> {
             Err("r2 unavailable".to_string())
+        }
+
+        async fn get_locations(&self) -> Result<Option<Vec<HikeLocation>>, String> {
+            unreachable!("the hike path reads no location list")
         }
     }
 
@@ -131,6 +234,10 @@ mod tests {
             _map_key: &str,
         ) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, String> {
             Ok(None)
+        }
+
+        async fn get_locations(&self) -> Result<Option<Vec<HikeLocation>>, String> {
+            unreachable!("the hike path reads no location list")
         }
     }
 

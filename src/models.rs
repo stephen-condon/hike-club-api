@@ -65,8 +65,17 @@ pub struct WeatherV2 {
     pub alerts: Vec<Alert>,
 }
 
+/// One entry of the location list stored in R2 at `resources/hike-locations.json`
+/// and served by `GET /hike-locations`. Unknown fields are ignored on read and so
+/// never reach the response.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct HikeLocation {
+    pub short_name: String,
+    pub full_name: String,
+}
+
 /// Raw hike metadata as stored in R2 at `hikes/{id}.json`, where `id` is the
-/// location slug (`short_name` in `resources/hike-location-mapping.json`) with no
+/// location slug (a `short_name` from the location list) with no
 /// date component — one record per location, rewritten in place when that location
 /// is next scheduled. `start`/`end` are the only source of the hike's date.
 #[derive(Debug, Clone, Serialize, Deserialize)]
