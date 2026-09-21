@@ -50,3 +50,7 @@ Annotate code and tests with `@spec` comments citing EARS IDs:
 ```
 
 Place the annotation at the *entry point of the behavior's implementation graph* — the topmost function or module owning the specified behavior, not every helper. Tests follow the same rule: annotate the test that directly exercises the spec, not every inner assertion.
+
+## Git worktrees
+
+A new worktree has no `node_modules`, so the `commit-msg` hook (commitlint via `npx`) fails and blocks every commit. Run `npm ci` in the worktree before the first commit.
