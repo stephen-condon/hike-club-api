@@ -160,11 +160,11 @@ mod tests {
         }
     }
 
-    /// Unwrap a `VersionedHike` known to be V1 for assertions.
-    fn v1(h: VersionedHike) -> HikeResponse {
+    /// Unwrap a `VersionedHike` known to be V2 for assertions.
+    fn v2(h: VersionedHike) -> HikeResponseV2 {
         match h {
-            VersionedHike::V1(r) => r,
-            VersionedHike::V2(_) => panic!("expected v1 response"),
+            VersionedHike::V2(r) => r,
+            VersionedHike::V1(_) => panic!("expected v2 response"),
         }
     }
 
@@ -206,7 +206,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(RawForecast::default()),
         };
-        let result = build_hike_response(&store, &weather, "nope", ApiVersion::V1)
+        let result = build_hike_response(&store, &weather, "nope", ApiVersion::V2)
             .await
             .unwrap();
         assert!(result.is_none());
@@ -221,7 +221,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Err("nws down".to_string()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -232,14 +232,14 @@ mod tests {
 
     // @spec API-RESP-006
     #[tokio::test]
-    async fn v1_populates_weather() {
+    async fn a_forecast_populates_weather() {
         let store = FixtureStore {
             record: Some(sample_record()),
         };
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -258,7 +258,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -276,7 +276,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -298,7 +298,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -324,7 +324,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V1).await else {
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V2).await else {
             panic!("expected an unparseable start to fail the request");
         };
         assert!(!err.is_empty());
@@ -365,7 +365,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V1).await;
+        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V2).await;
         let Err(err) = result else {
             panic!("expected storage failure to fail the request");
         };
