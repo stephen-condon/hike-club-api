@@ -185,10 +185,10 @@ fn spec_documents_location_list_failures_and_slug_field() {
     );
 }
 
-/// The published document describes the v3 shape — a nullable map beside
-/// `mapAvailable`, and conditions at both ends of the window — and no longer
-/// carries any schema for the sunset v1.
-// @spec API-WIRE-008
+/// The published document describes the v3 shape — no `start`/`end`, a
+/// nullable map beside `mapAvailable`, and conditions at both ends of the
+/// window — and no longer carries any schema for the sunset v1.
+// @spec API-WIRE-008, API-WIRE-011
 #[test]
 fn openapi_publishes_v3_and_drops_v1() {
     let openapi: serde_yaml::Value = serde_yaml::from_str(OPENAPI_YAML).unwrap();
@@ -200,8 +200,6 @@ fn openapi_publishes_v3_and_drops_v1() {
     let validator = validator_for("HikeResponseV3");
     let instance = serde_json::json!({
         "id": "blue-ridge",
-        "start": "2026-07-18T08:00:00-04:00",
-        "end": "2026-07-18T12:00:00-04:00",
         "meetingPoint": { "lat": 37.6, "lon": -79.2, "googleMapsUrl": "https://maps.google.com/?q=37.6,-79.2" },
         "trails": ["Blue Ridge Loop"],
         "map": null,
@@ -220,6 +218,14 @@ fn openapi_publishes_v3_and_drops_v1() {
     });
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
+    assert!(
+        !schemas["HikeResponseV3"]["required"]
+            .as_sequence()
+            .unwrap()
+            .iter()
+            .any(|f| f == "start" || f == "end"),
+        "HikeResponseV3 must not require start/end"
+    );
 
     let mut with_v2_conditions = instance.clone();
     with_v2_conditions["weather"]
@@ -259,8 +265,6 @@ fn sample_response_v3(weather: Option<WeatherV3>) -> HikeResponseV3 {
     let v2 = sample_response_v2(None);
     HikeResponseV3 {
         id: v2.id,
-        start: v2.start,
-        end: v2.end,
         meeting_point: v2.meeting_point,
         trails: v2.trails,
         map: Some(v2.map),

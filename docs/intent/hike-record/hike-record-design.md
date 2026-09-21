@@ -22,20 +22,22 @@ hike-club-api/                        (R2 bucket)
 
 `{id}` is a location slug — a `short_name` from the location list, such as `blackwell-forest-preserve`. It carries no date component.
 
-One object per location, overwritten each time that location is scheduled. This makes `/hike/{id}` links permanent across reschedules and keeps the bucket's object count equal to the number of preserves the pack visits rather than growing without bound. The cost is that a hike's `start`/`end` are the only statement of when it happens, and a record left with last season's dates is served as though current — the failure mode the admin exists to surface.
+One object per location, overwritten each time that location is scheduled. This makes `/hike/{id}` links permanent across reschedules and keeps the bucket's object count equal to the number of preserves the pack visits rather than growing without bound.
+
+The record carries no date of its own under API version 3: the caller supplies the hike's `start`/`end` as query parameters on each request, and the app is the only place that window is stored (`API-WIN-*`, `api-surface-design.md`). `start`/`end` remain optional fields on the record, read only to serve version 2, which has no query window and fails a record that lacks them. This closed the failure mode a dated record used to have: a record left with last season's dates served as though current. That footgun lives on only for version 2, until it sunsets.
 
 ## Record Schema
 
 | Field | Type | Notes |
 |---|---|---|
 | `id` | string | The location slug. Echoed into the response. |
-| `start` | string | RFC 3339 with offset, e.g. `2026-09-20T08:00:00-05:00`. |
-| `end` | string | RFC 3339 with offset. |
+| `start` | string, optional | RFC 3339 with offset, e.g. `2026-09-20T08:00:00-05:00`. Read only to serve API version 2. |
+| `end` | string, optional | RFC 3339 with offset. Read only to serve API version 2. |
 | `meeting.lat` / `meeting.lon` | number | Trailhead coordinates; also the weather query point. |
 | `trails` | string array | Trail names as the pack refers to them. |
 | `mapKey` | string | Object key of the map, by convention `hikes/{id}/map.png`. |
 
-The offset in `start`/`end` is significant, not decoration. It is preserved through parsing and carried into the weather segment, which reports precipitation timing on the hike's local calendar day. A record written in UTC would place that day boundary in the wrong place.
+Where `start`/`end` are read at all — a version-2 request, or the caller's query window under version 3 — the offset is significant, not decoration. It is preserved through parsing and carried into the weather segment, which reports precipitation timing on the hike's local calendar day. A timestamp in UTC would place that day boundary in the wrong place.
 
 `mapKey` is stored rather than derived. It lets a map live somewhere other than the conventional path — a shared map for two adjacent preserves, say — without a schema change. Because it is free-form, the object it names is confirmed to exist before a URL for it is returned.
 
@@ -53,15 +55,15 @@ Unknown fields in the JSON are ignored, so a record can carry annotations the wo
 
 ## Record Validation
 
-A record that parses is not yet a record that can be served. Retrieval hands back a record whose timestamps are already parsed and checked, so that nothing downstream re-parses them or works with a range that cannot exist:
+A record that parses is not yet a record that can be served.
 
-| Invariant | Outcome when violated |
-|---|---|
-| `start` and `end` parse as RFC 3339 with offset | `Err` — the hike is not served |
-| `end` is strictly after `start` | `Err` — the hike is not served |
-| The object named by `mapKey` exists in the bucket | The map is reported absent |
+| Invariant | Scope | Outcome when violated |
+|---|---|---|
+| `start` and `end`, where present, parse as RFC 3339 with offset | Read whenever `start`/`end` are used: always for version 2, never for version 3 | `Err` — the hike is not served |
+| Version 2 requires the record to carry `start` and `end` at all | Version 2 only | `Err` — a dateless record (written for version 3 only) cannot serve a version-2 request |
+| The object named by `mapKey` exists in the bucket | Every version | The map is reported absent |
 
-The first two fail the request, because each means the record describes a hike that cannot be walked: no time, or a negative duration. Validating inside retrieval rather than in the caller means a record and its validity arrive together — there is no window in which a consumer holds an unchecked record.
+The timestamp checks fail the request only where `start`/`end` are actually read: a version-2 request, always; a version-3 request, never, because its window comes from the query instead. A malformed or missing record date means the record describes a hike version 2 cannot serve.
 
 The map is different. Its object is probed for existence — metadata, not bytes — before the URL is signed, because signing is arithmetic and would happily produce a valid-looking URL for an object that was never uploaded, leaving the client to discover the mistake as a broken image. But a hike with no map is still a hike worth showing, so a missing object is reported as an absent map rather than a failure, and the API surface decides what its version can say about that. One metadata read per hike request is a Class B operation, and the free tier allows ten million a month against a pack that hikes monthly.
 
@@ -143,7 +145,7 @@ The presign TTL is a compile-time constant. It is the kind of value that only ch
 
 ### Deferred
 
-1. **A stale record is indistinguishable from a current one.** With no date in the id, a record whose `end` has passed is served as a completed hike — correctly, but silently. Whether the API should signal "this hike is over" rather than leaving the client to compare timestamps is unsettled.
+1. **Resolved for version 3, still open for version 2.** A record carries no date under version 3 at all — the caller's query window is authoritative, so a stale stored date can no longer disagree with reality. Version 2 still reads the record's own `start`/`end` and keeps the old failure mode (a record left with last season's dates serves as though current) until it sunsets 2026-11-18.
 2. **Coordinates are not checked against NWS coverage.** A meeting point outside it fails late and softly, as a hike with no weather, in the weather segment rather than here.
 3. **Map images are never invalidated.** Re-uploading a map under the same key leaves already-issued URLs pointing at the new bytes, which is usually right, but no versioning scheme exists if it ever isn't.
 

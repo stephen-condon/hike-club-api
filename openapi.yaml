@@ -24,12 +24,17 @@ paths:
       summary: Get a single hike's details, map, and weather
       description: >
         The weather block is versioned via the required `x-api-version` request
-        header. Version 3 returns `HikeResponseV3`: conditions at both ends of
-        the hike window (`startConditions`/`endConditions`) and a nullable `map`
-        with `mapAvailable`, so a hike whose map image is missing is still
-        served. Version 2 returns `HikeResponseV2`, whose single `conditions`
-        and non-null `map` are frozen; a missing map image is a 502 under
-        version 2. Version 2 is deprecated
+        header. Version 3 returns `HikeResponseV3`: no `start`/`end` (the
+        caller supplies the hike's window as the `start`/`end` query
+        parameters, required under version 3 — the app is the only place a
+        hike's date lives), conditions at both ends of the hike window
+        (`startConditions`/`endConditions`), and a nullable `map` with
+        `mapAvailable`, so a hike whose map image is missing is still served.
+        Version 2 returns `HikeResponseV2`, whose `start`/`end` (read from the
+        stored record), single `conditions`, and non-null `map` are frozen;
+        it ignores the `start`/`end` query parameters and fails with 502 if
+        the record carries no dates of its own, and a missing map image is
+        also a 502 under version 2. Version 2 is deprecated
         with a sunset of 2026-11-18 and carries `Deprecation`, `Sunset` and
         `Link` headers. Version 1 is past its sunset of
         2026-08-20 and is no longer served: it returns 410 naming the versions
@@ -42,11 +47,32 @@ paths:
             The hike's location slug — a `short_name` from `GET /hike-locations`.
             Ids carry no date: there is one record per location, updated in place
             when that location is next scheduled, so a `/hike/{id}` link stays
-            valid across reschedules. The hike's date is `start`/`end` in the
-            response.
+            valid across reschedules. The hike's date lives only in the app; under
+            version 3 it is supplied per request as `start`/`end`.
           schema:
             type: string
           example: danada-equestrian-center
+        - name: start
+          in: query
+          required: false
+          description: >
+            RFC 3339 start of the hike window, with the hike's local offset.
+            Required under API version 3 (400 if absent, badly formed, or not
+            strictly before `end`); ignored under version 2.
+          schema:
+            type: string
+            format: date-time
+          example: "2026-10-04T09:00:00-05:00"
+        - name: end
+          in: query
+          required: false
+          description: >
+            RFC 3339 end of the hike window. Required under API version 3;
+            ignored under version 2.
+          schema:
+            type: string
+            format: date-time
+          example: "2026-10-04T11:00:00-05:00"
         - $ref: "#/components/parameters/ApiVersionHeader"
       responses:
         "200":
@@ -58,7 +84,9 @@ paths:
                   - $ref: "#/components/schemas/HikeResponseV2"
                   - $ref: "#/components/schemas/HikeResponseV3"
         "400":
-          description: Missing or unsupported API version
+          description: >
+            Missing or unsupported API version, or (version 3 only) a missing,
+            malformed, or inverted `start`/`end` query parameter
         "401":
           description: Missing or invalid API key
         "404":
@@ -253,16 +281,13 @@ components:
             $ref: "#/components/schemas/Alert"
     HikeResponseV3:
       type: object
-      required: [id, start, end, meetingPoint, trails, map, mapAvailable, weatherAvailable, weather]
+      required: [id, meetingPoint, trails, map, mapAvailable, weatherAvailable, weather]
+      description: >
+        Carries no `start`/`end`: the caller supplied the hike's window as
+        query parameters, and the app is the only place that window is stored.
       properties:
         id:
           type: string
-        start:
-          type: string
-          format: date-time
-        end:
-          type: string
-          format: date-time
         meetingPoint:
           $ref: "#/components/schemas/MeetingPoint"
         trails:

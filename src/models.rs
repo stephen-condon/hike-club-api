@@ -98,12 +98,17 @@ pub struct WeatherV3 {
 /// Raw hike metadata as stored in R2 at `hikes/{id}.json`, where `id` is the
 /// location slug (a `short_name` from the location list) with no
 /// date component — one record per location, rewritten in place when that location
-/// is next scheduled. `start`/`end` are the only source of the hike's date.
+/// is next scheduled. The record itself carries no date: under API version 3 the
+/// caller supplies the hike's window per request (`API-WIN-*`). `start`/`end`
+/// are optional and read only to serve version 2, which has no window of its
+/// own; a record written without them can still be served under version 3.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeRecord {
     pub id: String,
-    pub start: String,
-    pub end: String,
+    #[serde(default)]
+    pub start: Option<String>,
+    #[serde(default)]
+    pub end: Option<String>,
     pub meeting: MeetingCoords,
     pub trails: Vec<String>,
     #[serde(rename = "mapKey")]
@@ -133,13 +138,13 @@ pub struct HikeResponseV2 {
 
 /// The full GET /hike/{id} response under `x-api-version: 3`. `map` is
 /// nullable beside `mapAvailable`, the way `weather` degrades beside
-/// `weatherAvailable`.
-// @spec API-WIRE-009
+/// `weatherAvailable`. Carries no `start`/`end`: the caller supplies the
+/// hike's window as query parameters and the app is the only place that
+/// window is stored (`API-WIN-*`).
+// @spec API-WIRE-009, API-WIN-004
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeResponseV3 {
     pub id: String,
-    pub start: String,
-    pub end: String,
     #[serde(rename = "meetingPoint")]
     pub meeting_point: MeetingPoint,
     pub trails: Vec<String>,
