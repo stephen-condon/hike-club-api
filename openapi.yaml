@@ -24,8 +24,10 @@ paths:
       summary: Get a single hike's details, map, and weather
       description: >
         The weather block is versioned via the required `x-api-version` request
-        header. Version 2 returns `WeatherV2` (start/end temps, precip timing,
-        alerts filtered to the hike window). Version 1 is past its sunset of
+        header. Versions 2 and 3 return `WeatherV2` (start/end temps, precip
+        timing, alerts filtered to the hike window). Version 2 is deprecated
+        with a sunset of 2026-11-18 and carries `Deprecation`, `Sunset` and
+        `Link` headers. Version 1 is past its sunset of
         2026-08-20 and is no longer served: it returns 410 naming the versions
         still available. A missing or unknown version returns 400.
       parameters:
@@ -97,13 +99,14 @@ components:
       in: header
       required: true
       description: >
-        API version to serve. `2` → v2. `1` is a known version past its sunset
+        API version to serve. `3` is current. `2` is deprecated, sunset
+        2026-11-18. `1` is a known version past its sunset
         of 2026-08-20 and answers 410; it stays listed so a stale client is told
         its version is finished rather than that it never existed.
         The header is required; a missing or unknown value returns 400.
       schema:
         type: string
-        enum: ["1", "2"]
+        enum: ["1", "2", "3"]
   schemas:
     HikeLocation:
       type: object
