@@ -35,9 +35,13 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 
 ## Location mapping
 
-- [x] **API-LOC-001**: When `GET /hike-locations` is served, the system shall respond with the slug-to-display-name mapping embedded in the binary at compile time, verbatim.
+- [x] **API-LOC-001**: When `GET /hike-locations` is admitted and the location list reads successfully, the system shall respond 200 with that list as a JSON array of objects carrying only `short_name` and `full_name`, in stored order.
 - [x] **API-LOC-002**: The system shall serve `GET /hike-locations` with a `content-type` of `application/json`.
-- [x] **API-LOC-003**: The system shall serve `GET /hike-locations` without reading R2, so that the endpoint has no storage failure mode.
+- [x] **API-LOC-004**: The system shall read the location list for `GET /hike-locations` only after API-key authorization and version negotiation have admitted the request.
+- [x] **API-LOC-005**: If the location list is absent from the bucket, then `GET /hike-locations` shall respond 500 with `server misconfigured: location list not found`.
+- [x] **API-LOC-006**: If the location list is present but cannot be read, then `GET /hike-locations` shall respond 502 with `upstream error: {detail}`.
+- [x] **API-LOC-007**: The `GET /hike-locations` response shall contain only the location list read from the bucket, with no list compiled into the worker and no substitute list served when the read fails.
+- [x] **API-LOC-008**: `openapi.yaml` shall document the `GET /hike-locations` 500 and 502 responses, and shall name a hike's location slug by the wire field `short_name`.
 
 ## Response assembly
 

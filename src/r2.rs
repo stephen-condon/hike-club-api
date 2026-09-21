@@ -1,4 +1,4 @@
-use crate::models::HikeRecord;
+use crate::models::{HikeLocation, HikeRecord};
 use chrono::{DateTime, Utc};
 use hmac::{Hmac, KeyInit, Mac};
 use sha2::{Digest, Sha256};
@@ -14,6 +14,18 @@ pub trait HikeStore {
         &self,
         map_key: &str,
     ) -> Result<Option<(String, DateTime<Utc>)>, String>;
+    /// `Ok(None)` when the list object is absent, `Err` when it is unreadable.
+    async fn get_locations(&self) -> Result<Option<Vec<HikeLocation>>, String>;
+}
+
+/// R2 key of the location list, written by `hike-club-admin`.
+pub const LOCATIONS_KEY: &str = "resources/hike-locations.json";
+
+/// Parses the stored location list: shape only, since the admin enforces the
+/// content rules when it writes.
+// @spec HIKE-LOC-003, HIKE-LOC-004, HIKE-LOC-005, HIKE-LOC-006
+pub fn parse_locations(bytes: &[u8]) -> Result<Vec<HikeLocation>, String> {
+    serde_json::from_slice(bytes).map_err(|e| e.to_string())
 }
 
 pub struct R2Config {
@@ -159,6 +171,57 @@ mod tests {
         let record: HikeRecord = serde_json::from_str(json).unwrap();
         assert_eq!(record.id, "blue-ridge");
         assert_eq!(record.trails, vec!["Blue Ridge Loop".to_string()]);
+    }
+
+    // @spec HIKE-LOC-004
+    #[test]
+    fn location_list_keeps_stored_order() {
+        let json = br#"[
+            {"short_name": "oakhurst", "full_name": "Oakhurst"},
+            {"short_name": "blackwell", "full_name": "Blackwell"}
+        ]"#;
+        let list = parse_locations(json).unwrap();
+        let slugs: Vec<_> = list.iter().map(|l| l.short_name.as_str()).collect();
+        assert_eq!(slugs, ["oakhurst", "blackwell"]);
+        assert_eq!(list[1].full_name, "Blackwell");
+    }
+
+    // @spec HIKE-LOC-005
+    #[test]
+    fn empty_location_list_is_valid() {
+        assert_eq!(parse_locations(b"[]").unwrap(), vec![]);
+    }
+
+    /// Unknown fields are ignored on read and absent on write, so the response
+    /// carries only the two fields the wire contract names.
+    // @spec HIKE-LOC-006
+    #[test]
+    fn location_entry_ignores_and_drops_unknown_fields() {
+        let json = br#"[{"short_name": "a", "full_name": "A", "note": "x"}]"#;
+        let list = parse_locations(json).unwrap();
+        assert_eq!(
+            serde_json::to_string(&list).unwrap(),
+            r#"[{"short_name":"a","full_name":"A"}]"#
+        );
+    }
+
+    // @spec HIKE-LOC-003
+    #[test]
+    fn misshapen_location_list_is_an_error() {
+        for bad in [
+            &b""[..],
+            b"not json",
+            br#"{"short_name": "a", "full_name": "A"}"#,
+            br#"[{"short_name": "a"}]"#,
+            br#"[{"short_name": 1, "full_name": "A"}]"#,
+            br#"[{"short_name": null, "full_name": "A"}]"#,
+        ] {
+            assert!(
+                parse_locations(bad).is_err(),
+                "should reject {:?}",
+                String::from_utf8_lossy(bad)
+            );
+        }
     }
 
     /// SigV4 encodes each path segment but leaves the separators alone, so a key
