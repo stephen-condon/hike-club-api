@@ -128,9 +128,10 @@ check_status "hike with an unknown version" 400 "/hike/smoke-test" \
 check_status "hike with a non-integer version" 400 "/hike/smoke-test" \
   -H "x-api-key: $api_key" -H "x-api-version: v2"
 
-# @spec API-VER-005 — a version past its sunset is gone, not merely deprecated,
-# on every endpoint that negotiates a version. The body names the version, the
-# date it went, and what to ask for instead.
+# @spec API-VER-005, API-VER-009 — a version past its sunset is gone, not merely
+# deprecated, on every endpoint that negotiates a version: it stays registered, so
+# it answers 410 rather than the 400 for an unknown version. The body names the
+# version, the date it went, and what to ask for instead.
 check_status "hike under a sunset version" 410 "/hike/smoke-test" \
   -H "x-api-key: $api_key" -H "x-api-version: 1"
 check_body "410 names the version, its sunset and the live versions" \
