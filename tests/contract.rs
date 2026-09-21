@@ -4,7 +4,7 @@
 //! full-runtime contract exercise is left to the post-deploy smoke test instead.
 
 use hike_club_api::models::{
-    Alert, HikeResponseV2, MapRef, MeetingPoint, PrecipitationV2, WeatherV2,
+    Alert, HikeLocation, HikeResponseV2, MapRef, MeetingPoint, PrecipitationV2, WeatherV2,
 };
 
 const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
@@ -32,7 +32,8 @@ fn desugar_nullable(value: &mut serde_json::Value) {
     }
 }
 
-fn validator_for(root: &str) -> jsonschema::Validator {
+/// OpenAPI's component schemas as draft-07 `definitions`.
+fn definitions() -> serde_json::Value {
     let openapi: serde_json::Value =
         serde_json::to_value(serde_yaml::from_str::<serde_yaml::Value>(OPENAPI_YAML).unwrap())
             .unwrap();
@@ -46,13 +47,27 @@ fn validator_for(root: &str) -> jsonschema::Validator {
         .replace("#/components/schemas/", "#/definitions/");
     let mut definitions: serde_json::Value = serde_json::from_str(&rewritten).unwrap();
     desugar_nullable(&mut definitions);
+    definitions
+}
 
+fn validator_for(root: &str) -> jsonschema::Validator {
     let schema = serde_json::json!({
         "$schema": "http://json-schema.org/draft-07/schema#",
         "$ref": format!("#/definitions/{root}"),
-        "definitions": definitions,
+        "definitions": definitions(),
     });
 
+    jsonschema::validator_for(&schema).expect("openapi.yaml schema must compile")
+}
+
+/// A validator for a JSON array whose items are the named component schema.
+fn array_validator_for(item: &str) -> jsonschema::Validator {
+    let schema = serde_json::json!({
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "array",
+        "items": { "$ref": format!("#/definitions/{item}") },
+        "definitions": definitions(),
+    });
     jsonschema::validator_for(&schema).expect("openapi.yaml schema must compile")
 }
 
@@ -127,21 +142,46 @@ fn v2_precip_timing_nulls_validate() {
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
 
-/// `GET /hike-locations` serves this file verbatim, so nothing else validates
-/// its shape. Guard that it stays a non-empty array of {short_name, full_name}.
+/// `GET /hike-locations` serializes the parsed list, so its bytes carry only
+/// the two fields the spec names; a third field must fail the schema.
 // @spec API-LOC-001
 #[test]
-fn hike_location_mapping_is_well_formed() {
-    const MAPPING_JSON: &str = include_str!("../resources/hike-location-mapping.json");
-    let entries: Vec<serde_json::Value> =
-        serde_json::from_str(MAPPING_JSON).expect("mapping must be a JSON array");
-    assert!(!entries.is_empty(), "mapping must not be empty");
-    for entry in &entries {
+fn location_list_validates_against_spec() {
+    let validator = array_validator_for("HikeLocation");
+    let list = vec![HikeLocation {
+        short_name: "blackwell-forest-preserve".to_string(),
+        full_name: "Blackwell".to_string(),
+    }];
+    let instance = serde_json::to_value(&list).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+
+    let extra = serde_json::json!([{ "short_name": "a", "full_name": "A", "note": "x" }]);
+    assert!(
+        !validator.is_valid(&extra),
+        "the spec must refuse fields beyond short_name and full_name"
+    );
+}
+
+/// The spec documents both location-list failures and names the slug by its
+/// wire field.
+// @spec API-LOC-008
+#[test]
+fn spec_documents_location_list_failures_and_slug_field() {
+    let openapi: serde_json::Value =
+        serde_json::to_value(serde_yaml::from_str::<serde_yaml::Value>(OPENAPI_YAML).unwrap())
+            .unwrap();
+    let responses = &openapi["paths"]["/hike-locations"]["get"]["responses"];
+    for status in ["500", "502"] {
         assert!(
-            entry["short_name"].is_string() && entry["full_name"].is_string(),
-            "each entry needs string short_name and full_name: {entry}"
+            responses[status].is_object(),
+            "/hike-locations must document {status}"
         );
     }
+    assert!(
+        !OPENAPI_YAML.contains("shortName"),
+        "the slug's wire field is short_name"
+    );
 }
 
 /// The published document describes the v3 shape — a nullable map beside

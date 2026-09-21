@@ -14,15 +14,11 @@ mod weather_adapter;
 
 use auth::{API_KEY_HEADER, is_authorized};
 use chrono::DateTime;
-use handler::{VersionedHike, build_hike_response};
+use handler::{VersionedHike, build_hike_response, build_locations_response};
 use r2_adapter::{R2HikeStore, load_r2_config};
 use version::{API_VERSION_HEADER, ApiVersion, gone_body, parse_version, sunset};
 use weather_adapter::NwsWeatherSource;
 use worker::*;
-
-/// Short-name → full-name mapping for the club's forest preserves, embedded at
-/// compile time and served verbatim by `GET /hike-locations`.
-const HIKE_LOCATIONS_JSON: &str = include_str!("../resources/hike-location-mapping.json");
 
 /// Routing is settled before admission: the catch-all answers an unrouted path
 /// itself, and each handler's method guard runs ahead of its `API_KEY` read, so
@@ -122,7 +118,7 @@ fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response>
     Ok(resp)
 }
 
-// @spec API-ROUTE-003, API-AUTH-002, API-VER-003, API-LOC-001, API-LOC-002, API-LOC-003
+// @spec API-ROUTE-003, API-AUTH-002, API-VER-003, API-LOC-002, API-LOC-004, API-ERR-001
 async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     if req.method() != Method::Get {
         return method_not_allowed();
@@ -143,9 +139,27 @@ async fn handle_hike_locations(req: Request, ctx: RouteContext<()>) -> Result<Re
         Err(resp) => return Ok(resp),
     };
 
-    let mut resp = Response::ok(HIKE_LOCATIONS_JSON)?;
-    resp.headers_mut().set("content-type", "application/json")?;
-    with_deprecation(resp, version)
+    let config = match load_r2_config(&ctx.env) {
+        Ok(c) => c,
+        Err(e) => return Response::error(format!("server misconfigured: {e}"), 500),
+    };
+    let bucket = match ctx.env.bucket("HIKES") {
+        Ok(b) => b,
+        Err(e) => return Response::error(format!("server misconfigured: {e}"), 500),
+    };
+    let store = R2HikeStore {
+        bucket,
+        config: &config,
+    };
+
+    match build_locations_response(&store).await {
+        (200, body) => {
+            let mut resp = Response::ok(body)?;
+            resp.headers_mut().set("content-type", "application/json")?;
+            with_deprecation(resp, version)
+        }
+        (status, body) => Response::error(body, status),
+    }
 }
 
 // @spec API-ROUTE-001, API-ROUTE-003, API-ROUTE-004, API-AUTH-001, API-AUTH-002, API-AUTH-003, API-AUTH-004, API-ERR-001, API-RESP-004, API-RESP-007, API-WIRE-006

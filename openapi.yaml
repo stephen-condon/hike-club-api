@@ -39,7 +39,7 @@ paths:
           in: path
           required: true
           description: >
-            The hike's location slug — a `shortName` from `GET /hike-locations`.
+            The hike's location slug — a `short_name` from `GET /hike-locations`.
             Ids carry no date: there is one record per location, updated in place
             when that location is next scheduled, so a `/hike/{id}` link stays
             valid across reschedules. The hike's date is `start`/`end` in the
@@ -90,7 +90,11 @@ paths:
         "410":
           description: Requested API version is past its sunset
         "500":
-          description: Internal Server Error
+          description: >
+            Server misconfigured, including a location list that is absent
+            from storage (`server misconfigured: location list not found`)
+        "502":
+          description: The stored location list could not be read
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -115,6 +119,7 @@ components:
     HikeLocation:
       type: object
       required: [short_name, full_name]
+      additionalProperties: false
       properties:
         short_name:
           type: string

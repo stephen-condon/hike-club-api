@@ -1,5 +1,5 @@
-use crate::models::HikeRecord;
-use crate::r2::{HikeStore, R2Config, presign_get_url};
+use crate::models::{HikeLocation, HikeRecord};
+use crate::r2::{HikeStore, LOCATIONS_KEY, R2Config, parse_locations, presign_get_url};
 use chrono::{DateTime, Utc};
 
 pub struct R2HikeStore<'a> {
@@ -7,14 +7,12 @@ pub struct R2HikeStore<'a> {
     pub config: &'a R2Config,
 }
 
-// @spec HIKE-OBJ-001, HIKE-OBJ-003, HIKE-REC-001, HIKE-REC-002, HIKE-REC-003, HIKE-MAP-001, HIKE-MAP-002,
-// @spec HIKE-MAP-006, HIKE-MAP-009
-impl<'a> HikeStore for R2HikeStore<'a> {
-    async fn get_hike(&self, id: &str) -> Result<Option<HikeRecord>, String> {
-        let key = format!("hikes/{id}.json");
+impl R2HikeStore<'_> {
+    /// The object's bytes, `None` when it is absent, `Err` when it has no body.
+    async fn read(&self, key: &str) -> Result<Option<Vec<u8>>, String> {
         let object = self
             .bucket
-            .get(&key)
+            .get(key)
             .execute()
             .await
             .map_err(|e| e.to_string())?;
@@ -27,7 +25,26 @@ impl<'a> HikeStore for R2HikeStore<'a> {
             .bytes()
             .await
             .map_err(|e| e.to_string())?;
+        Ok(Some(bytes))
+    }
+}
+
+// @spec HIKE-OBJ-001, HIKE-OBJ-003, HIKE-REC-001, HIKE-REC-002, HIKE-REC-003, HIKE-MAP-001, HIKE-MAP-002,
+// @spec HIKE-MAP-006, HIKE-MAP-009
+impl<'a> HikeStore for R2HikeStore<'a> {
+    async fn get_hike(&self, id: &str) -> Result<Option<HikeRecord>, String> {
+        let Some(bytes) = self.read(&format!("hikes/{id}.json")).await? else {
+            return Ok(None);
+        };
         serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+    }
+
+    // @spec HIKE-LOC-001, HIKE-LOC-002
+    async fn get_locations(&self) -> Result<Option<Vec<HikeLocation>>, String> {
+        let Some(bytes) = self.read(LOCATIONS_KEY).await? else {
+            return Ok(None);
+        };
+        parse_locations(&bytes).map(Some)
     }
 
     async fn presign_map_url(

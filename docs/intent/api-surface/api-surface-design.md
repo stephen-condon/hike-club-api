@@ -19,7 +19,7 @@ The segment depends on `hike-record` and `weather` only through the `HikeStore` 
 |---|---|---|---|
 | `GET /health` | none | not read | `200 ok` (text) |
 | `GET /hike/{id}` | required | required | `200` hike object in the requested version's shape |
-| `GET /hike-locations` | required | required | `200` slug-to-display-name map (identical under every version) |
+| `GET /hike-locations` | required | required | `200` location list (identical under every version) |
 
 `404` means one thing and one thing only: *that hike does not exist*. An unrouted path is `501 Not Implemented` and a known path under an unsupported method is `405 Method Not Allowed` with an `Allow` header, so a client distinguishing "wrong URL" from "no such hike" never has to guess. Paths under `/hike/` that name no id — `/hike` and `/hike/` — resolve to `404` rather than `501`: they address the hike collection correctly and simply identify nothing in it.
 
@@ -29,9 +29,9 @@ The segment depends on `hike-record` and `weather` only through the `HikeStore` 
 
 ## Location Mapping
 
-`GET /hike-locations` serves the slug-to-display-name list the app uses to populate its picker. The list is embedded in the binary at compile time and served verbatim, so the endpoint has no failure mode of its own and costs no storage read.
+`GET /hike-locations` serves the list of `{short_name, full_name}` entries the app uses to populate its picker. It reads the list through `HikeStore::get_locations` on every request, after admission, and serializes what it gets back as a JSON array in stored order.
 
-The cost is that adding a preserve is a deploy rather than a content change — acceptable while the list changes a few times a year and every new preserve needs a map uploaded alongside it anyway.
+The endpoint has no fallback. An absent list is a `500`, because the bucket was never seeded and that is a deployment fault; an unreadable one is a `502`, because the object exists and is wrong. Neither is ever answered with a substitute list: the app keeps its cached locations when a refresh fails but replaces them with any list it is served, so an error costs the organizer nothing while a wrong list silently corrupts the picker. The response is uncached; the app refreshes weekly.
 
 ## Request Admission
 
@@ -124,6 +124,8 @@ v3 also makes `map` nullable, with a `mapAvailable` flag beside it, mirroring ho
 | Absent or empty hike id, or no record for that id | 404 | `hike not found` |
 | R2 configuration or binding unresolvable | 500 | `server misconfigured: {detail}` |
 | Record unusable, or assembly failed | 502 | `upstream error: {detail}` |
+| Location list absent | 500 | `server misconfigured: location list not found` |
+| Location list unreadable | 502 | `upstream error: {detail}` |
 
 Bodies are plain text, not JSON. The sole client renders a generic failure state; a structured error object would be contract surface maintained for nobody.
 
@@ -145,7 +147,7 @@ Bodies are plain text, not JSON. The sole client renders a generic failure state
 | Missing map under a frozen version | `502` under v2, degraded under v3 | Degrade under both; fail under both | v2's shape has no way to say "no map", and a frozen shape is not corrected in place. |
 | Empty hike id | `404` | `400 missing hike id` | `/hike/` addresses the collection correctly and names nothing in it — a hike that does not exist, not a malformed request. |
 | Past-sunset version | `410` naming the supported versions | Keep serving it; `400` | A date that is advertised but never enforced teaches clients to ignore the header. Naming the live versions in the body means a stale build learns what to ask for without a doc lookup. |
-| Location mapping source | Embedded at compile time | An R2 object; a hard-coded match arm | The list changes a few times a year, and a new preserve needs a map uploaded anyway, so a deploy is already in the loop. Embedding gives the endpoint no failure mode and no storage read. |
+| Location list failure | `500` when absent, `502` when unreadable, no fallback | Serve an embedded copy; serve an empty list; one status for both | The app keeps its cache when a refresh fails and overwrites it when one succeeds, so any substitute list does more harm than an error. Absent and unreadable get different statuses because they have different fixes: seed the bucket versus correct the object. |
 | Conditions paired with temperatures | New v3 | Add `endConditions` to v2; rename in place in v2 | Renaming a field breaks a shipped client, which no version may do. The asymmetry of `startTempF`/`endTempF` beside `conditions`/`endConditions` would outlive the reason for it. |
 
 ## Open Questions & Future Decisions

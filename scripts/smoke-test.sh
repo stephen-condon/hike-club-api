@@ -90,7 +90,8 @@ check_status "unsupported method with a wrong key" 405 "/hike/smoke-test" -X DEL
 check_status "hike without an api key" 401 "/hike/smoke-test" \
   -H "x-api-version: 2"
 
-# @spec API-AUTH-002, API-AUTH-003 — the locations endpoint is behind the same key.
+# @spec API-AUTH-002, API-AUTH-003, API-LOC-004 — the locations endpoint is behind
+# the same key, which is checked before the location list is read.
 check_status "locations without an api key" 401 "/hike-locations" \
   -H "x-api-version: 2"
 
@@ -158,7 +159,8 @@ check_status "hike collection with no id" 404 "/hike" \
 check_status "hike collection with a trailing slash" 404 "/hike/" \
   -H "x-api-key: $api_key" -H "x-api-version: 2"
 
-# @spec API-LOC-001, API-LOC-002 — the location mapping is served as JSON.
+# @spec API-LOC-001, API-LOC-002, HIKE-LOC-001, HIKE-CFG-002 — the location list is
+# read from R2 through the HIKES binding and served as JSON.
 check_status "locations are served" 200 "/hike-locations" \
   -H "x-api-key: $api_key" -H "x-api-version: 2"
 check_header "locations carry a json content-type" '^content-type:.*application/json'
