@@ -31,15 +31,19 @@ pub fn parse_locations(bytes: &[u8]) -> Result<Vec<HikeLocation>, String> {
 /// Parses a stored hike record and checks the invariants a parse alone can't
 /// express, so a value that reaches the caller has already been validated:
 /// nothing downstream re-parses `start`/`end` or works with a range that
-/// cannot exist.
+/// cannot exist. `start`/`end` are optional — a record written for API
+/// version 3 only may carry neither — so the order check applies only where
+/// both are present.
 // @spec HIKE-REC-006, HIKE-REC-007, HIKE-REC-008, HIKE-REC-009
 pub fn parse_hike_record(bytes: &[u8]) -> Result<HikeRecord, String> {
     let record: HikeRecord = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
-    if record.end <= record.start {
+    if let (Some(start), Some(end)) = (record.start, record.end)
+        && end <= start
+    {
         return Err(format!(
             "hike record end ({}) is not after start ({})",
-            record.end.to_rfc3339(),
-            record.start.to_rfc3339()
+            end.to_rfc3339(),
+            start.to_rfc3339()
         ));
     }
     Ok(record)
@@ -238,8 +242,30 @@ mod tests {
         }"#;
         let record = parse_hike_record(json).unwrap();
         // Typed as `DateTime<FixedOffset>` already — no further parsing needed.
-        assert_eq!(record.start.to_rfc3339(), "2026-07-18T08:00:00-04:00");
-        assert_eq!(record.end.to_rfc3339(), "2026-07-18T12:00:00-04:00");
+        assert_eq!(
+            record.start.unwrap().to_rfc3339(),
+            "2026-07-18T08:00:00-04:00"
+        );
+        assert_eq!(
+            record.end.unwrap().to_rfc3339(),
+            "2026-07-18T12:00:00-04:00"
+        );
+    }
+
+    /// A record written for API version 3 only may carry no date at all —
+    /// version 3 sends its own window per request and never reads these.
+    // @spec HIKE-REC-005, HIKE-REC-007
+    #[test]
+    fn parse_hike_record_accepts_a_record_with_no_dates() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        let record = parse_hike_record(json).unwrap();
+        assert!(record.start.is_none());
+        assert!(record.end.is_none());
     }
 
     /// A reversed or zero-length range describes a hike that cannot be

@@ -2,6 +2,37 @@ use crate::models::{HikeResponseV2, HikeResponseV3, MapRef, MeetingPoint};
 use crate::r2::HikeStore;
 use crate::version::ApiVersion;
 use crate::weather::{WeatherSource, build_weather_v2, build_weather_v3};
+use chrono::{DateTime, FixedOffset};
+
+/// A hike's window, as supplied per-request. Used to build the record's
+/// weather query and, under API version 3, is the only source of `start`/`end`
+/// — the record itself may carry none.
+pub type Window = (DateTime<FixedOffset>, DateTime<FixedOffset>);
+
+/// Parses the `start`/`end` query parameters `GET /hike/{id}` accepts under API
+/// version 3. Version 2 has its own window (the record's `start`/`end`) and
+/// ignores the query entirely, so this returns `Ok(None)` for every version but
+/// V3 without inspecting `start`/`end` at all.
+// @spec API-WIN-001, API-WIN-002, API-WIN-003
+pub fn parse_window(
+    version: ApiVersion,
+    start: Option<&str>,
+    end: Option<&str>,
+) -> Result<Option<Window>, String> {
+    if version != ApiVersion::V3 {
+        return Ok(None);
+    }
+    let start = start.ok_or_else(|| "start query parameter is required".to_string())?;
+    let end = end.ok_or_else(|| "end query parameter is required".to_string())?;
+    let start = DateTime::parse_from_rfc3339(start)
+        .map_err(|_| "start is not a valid RFC 3339 timestamp".to_string())?;
+    let end = DateTime::parse_from_rfc3339(end)
+        .map_err(|_| "end is not a valid RFC 3339 timestamp".to_string())?;
+    if end <= start {
+        return Err("end must be after start".to_string());
+    }
+    Ok(Some((start, end)))
+}
 
 /// A hike response in the shape for the requested API version. `lib.rs` matches
 /// on this and serializes the appropriate variant.
@@ -31,15 +62,21 @@ pub async fn build_locations_response<S: HikeStore>(store: &S) -> (u16, String) 
 /// Pure orchestration: fetch hike metadata + the full forecast, assemble the
 /// version-appropriate response. Generic over both traits so tests inject
 /// fixtures with zero network.
+///
+/// `window` is the caller-supplied `start`/`end` (`parse_window`, already
+/// validated). Version 3 uses it exclusively — the record itself may carry no
+/// date. Version 2 ignores it and reads the record's own `start`/`end`, so a
+/// dateless record fails a version-2 request.
 // @spec API-RESP-001, API-RESP-002, API-RESP-003, API-RESP-004, API-RESP-005,
 // @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-010,
 // @spec API-RESP-011,
-// @spec API-WIRE-004, API-WIRE-009, API-WIRE-010
+// @spec API-WIRE-004, API-WIRE-009, API-WIRE-010, API-WIN-004, API-WIN-005
 pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     store: &S,
     weather_source: &W,
     id: &str,
     version: ApiVersion,
+    window: Option<Window>,
 ) -> Result<Option<VersionedHike>, String> {
     let Some(record) = store.get_hike(id).await? else {
         return Ok(None);
@@ -55,18 +92,6 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             expires_at: expires_at.to_rfc3339(),
         });
 
-    // Retrieval already parsed and validated these (HIKE-REC-008, HIKE-REC-009);
-    // preserve the offset (needed for v2's local-calendar-day precip timing)
-    // while the instants drive window filtering.
-    let offset = record.start.timezone();
-    let start = record.start.to_utc();
-    let end = record.end.to_utc();
-
-    let forecast = weather_source
-        .forecast(record.meeting.lat, record.meeting.lon, start, end)
-        .await;
-    let raw = forecast.as_ref().ok();
-
     let meeting_point = MeetingPoint::new(record.meeting.lat, record.meeting.lon);
 
     let response = match version {
@@ -76,11 +101,31 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
         ApiVersion::V2 => {
             // v2's shape cannot express an absent map, so it fails the request.
             let map = map.ok_or_else(|| format!("map object not found: {}", record.map_key))?;
-            let weather = raw.and_then(|raw| build_weather_v2(raw, start, end, offset));
+            // v2 has no window of its own: the record's start/end — already
+            // parsed and validated during retrieval (HIKE-REC-008, HIKE-REC-009)
+            // — are the only source, so a dateless record (written for v3 only)
+            // fails here.
+            let record_start = record
+                .start
+                .ok_or_else(|| "hike record has no start".to_string())?;
+            let record_end = record
+                .end
+                .ok_or_else(|| "hike record has no end".to_string())?;
+            let offset = record_start.timezone();
+            let start = record_start.to_utc();
+            let end = record_end.to_utc();
+
+            let forecast = weather_source
+                .forecast(record.meeting.lat, record.meeting.lon, start, end)
+                .await;
+            let weather = forecast
+                .as_ref()
+                .ok()
+                .and_then(|raw| build_weather_v2(raw, start, end, offset));
             VersionedHike::V2(HikeResponseV2 {
                 id: record.id,
-                start: record.start.to_rfc3339(),
-                end: record.end.to_rfc3339(),
+                start: record_start.to_rfc3339(),
+                end: record_end.to_rfc3339(),
                 meeting_point,
                 trails: record.trails,
                 map,
@@ -89,11 +134,21 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             })
         }
         ApiVersion::V3 => {
-            let weather = raw.and_then(|raw| build_weather_v3(raw, start, end, offset));
+            let (start_local, end_local) =
+                window.ok_or_else(|| "start and end query parameters are required".to_string())?;
+            let offset = start_local.timezone();
+            let start = start_local.to_utc();
+            let end = end_local.to_utc();
+
+            let forecast = weather_source
+                .forecast(record.meeting.lat, record.meeting.lon, start, end)
+                .await;
+            let weather = forecast
+                .as_ref()
+                .ok()
+                .and_then(|raw| build_weather_v3(raw, start, end, offset));
             VersionedHike::V3(HikeResponseV3 {
                 id: record.id,
-                start: record.start.to_rfc3339(),
-                end: record.end.to_rfc3339(),
                 meeting_point,
                 trails: record.trails,
                 map_available: map.is_some(),
@@ -270,6 +325,84 @@ mod tests {
         }
     }
 
+    // @spec API-WIN-001
+    #[test]
+    fn non_v3_ignores_the_query_entirely() {
+        // Garbage that would fail to parse if it were ever read.
+        assert_eq!(
+            parse_window(ApiVersion::V2, Some("not a date"), None),
+            Ok(None)
+        );
+        assert_eq!(parse_window(ApiVersion::V1, None, None), Ok(None));
+    }
+
+    // @spec API-WIN-002
+    #[test]
+    fn v3_requires_both_query_parameters() {
+        assert_eq!(
+            parse_window(ApiVersion::V3, None, Some("2026-07-18T12:00:00-04:00")),
+            Err("start query parameter is required".to_string())
+        );
+        assert_eq!(
+            parse_window(ApiVersion::V3, Some("2026-07-18T08:00:00-04:00"), None),
+            Err("end query parameter is required".to_string())
+        );
+    }
+
+    // @spec API-WIN-002
+    #[test]
+    fn v3_rejects_a_malformed_timestamp() {
+        assert_eq!(
+            parse_window(
+                ApiVersion::V3,
+                Some("not a date"),
+                Some("2026-07-18T12:00:00-04:00")
+            ),
+            Err("start is not a valid RFC 3339 timestamp".to_string())
+        );
+        assert_eq!(
+            parse_window(
+                ApiVersion::V3,
+                Some("2026-07-18T08:00:00-04:00"),
+                Some("not a date")
+            ),
+            Err("end is not a valid RFC 3339 timestamp".to_string())
+        );
+    }
+
+    // @spec API-WIN-003
+    #[test]
+    fn v3_rejects_an_end_not_after_start() {
+        let same = "2026-07-18T08:00:00-04:00";
+        assert_eq!(
+            parse_window(ApiVersion::V3, Some(same), Some(same)),
+            Err("end must be after start".to_string())
+        );
+        assert_eq!(
+            parse_window(
+                ApiVersion::V3,
+                Some("2026-07-18T12:00:00-04:00"),
+                Some("2026-07-18T08:00:00-04:00"),
+            ),
+            Err("end must be after start".to_string())
+        );
+    }
+
+    // @spec API-WIN-002, API-WIN-003
+    #[test]
+    fn v3_accepts_a_valid_window() {
+        let start = "2026-07-18T08:00:00-04:00";
+        let end = "2026-07-18T12:00:00-04:00";
+        let window = parse_window(ApiVersion::V3, Some(start), Some(end)).unwrap();
+        assert_eq!(
+            window,
+            Some((
+                DateTime::parse_from_rfc3339(start).unwrap(),
+                DateTime::parse_from_rfc3339(end).unwrap(),
+            ))
+        );
+    }
+
     /// Unwrap a `VersionedHike` known to be V2 for assertions.
     fn v2(h: VersionedHike) -> HikeResponseV2 {
         match h {
@@ -281,8 +414,8 @@ mod tests {
     fn sample_record() -> HikeRecord {
         HikeRecord {
             id: "blue-ridge".to_string(),
-            start: "2026-07-18T08:00:00-04:00".parse().unwrap(),
-            end: "2026-07-18T12:00:00-04:00".parse().unwrap(),
+            start: Some("2026-07-18T08:00:00-04:00".parse().unwrap()),
+            end: Some("2026-07-18T12:00:00-04:00".parse().unwrap()),
             meeting: MeetingCoords {
                 lat: 37.6,
                 lon: -79.2,
@@ -290,6 +423,24 @@ mod tests {
             trails: vec!["Blue Ridge Loop".to_string()],
             map_key: "hikes/blue-ridge/map.png".to_string(),
         }
+    }
+
+    /// A record written for v3-only service: no start/end at all.
+    fn dateless_record() -> HikeRecord {
+        HikeRecord {
+            start: None,
+            end: None,
+            ..sample_record()
+        }
+    }
+
+    /// The window a v3 caller supplies, matching `sample_record`'s dates so
+    /// tests that don't care about the window's independence can reuse it.
+    fn sample_window() -> Window {
+        (
+            DateTime::parse_from_rfc3339("2026-07-18T08:00:00-04:00").unwrap(),
+            DateTime::parse_from_rfc3339("2026-07-18T12:00:00-04:00").unwrap(),
+        )
     }
 
     /// A forecast whose single period covers the sample hike window (08:00-12:00
@@ -316,7 +467,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(RawForecast::default()),
         };
-        let result = build_hike_response(&store, &weather, "nope", ApiVersion::V2)
+        let result = build_hike_response(&store, &weather, "nope", ApiVersion::V2, None)
             .await
             .unwrap();
         assert!(result.is_none());
@@ -331,10 +482,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Err("nws down".to_string()),
         };
-        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let response = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         assert!(!response.weather_available);
         assert!(response.weather.is_none());
         assert_eq!(response.id, "blue-ridge");
@@ -349,10 +502,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let response = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         assert!(response.weather_available);
         assert_eq!(response.weather.unwrap().conditions, "Partly Cloudy");
     }
@@ -368,10 +523,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let response = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         assert_eq!(response.start, "2026-07-18T08:00:00-04:00");
         assert_eq!(response.end, "2026-07-18T12:00:00-04:00");
     }
@@ -386,10 +543,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let response = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         assert_eq!(response.meeting_point.lat, 37.6);
         assert_eq!(response.meeting_point.lon, -79.2);
         assert_eq!(
@@ -408,10 +567,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let response = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         assert_eq!(response.id, "blue-ridge");
         assert_eq!(response.trails, vec!["Blue Ridge Loop".to_string()]);
         assert_eq!(response.map.url, "https://example.com/map.png");
@@ -432,10 +593,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(forecast),
         };
-        let r = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let r = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         let starts_at = r.weather.unwrap().precipitation.starts_at.unwrap();
         assert!(
             starts_at.ends_with("-04:00"),
@@ -449,7 +612,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V2).await;
+        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V2, None).await;
         let Err(err) = result else {
             panic!("expected storage failure to fail the request");
         };
@@ -465,10 +628,12 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let r = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
-            .await
-            .unwrap()
-            .unwrap());
+        let r = v2(
+            build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+                .await
+                .unwrap()
+                .unwrap(),
+        );
         let w = r.weather.unwrap();
         assert_eq!(w.start_temp_f, 78.0);
         assert_eq!(w.end_temp_f, 78.0);
@@ -482,7 +647,8 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let Err(err) = build_hike_response(&MaplessStore, &weather, "x", ApiVersion::V2).await
+        let Err(err) =
+            build_hike_response(&MaplessStore, &weather, "x", ApiVersion::V2, None).await
         else {
             panic!("expected a missing map to fail a v2 request");
         };
@@ -497,10 +663,16 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = build_hike_response(&MaplessStore, &weather, "x", ApiVersion::V3)
-            .await
-            .unwrap()
-            .unwrap();
+        let response = build_hike_response(
+            &MaplessStore,
+            &weather,
+            "x",
+            ApiVersion::V3,
+            Some(sample_window()),
+        )
+        .await
+        .unwrap()
+        .unwrap();
         let VersionedHike::V3(r) = response else {
             panic!("expected the v3 shape");
         };
@@ -508,6 +680,92 @@ mod tests {
         assert!(!r.map_available);
         assert_eq!(r.meeting_point.lat, 37.6);
         assert!(r.weather_available);
+    }
+
+    /// v3 needs no dates on the record at all: the caller's window is the only
+    /// source, so a dateless record — the shape the admin will write once it
+    /// stops writing dates — still serves.
+    // @spec API-WIN-004, API-WIN-005
+    #[tokio::test]
+    async fn v3_serves_a_dateless_record_from_the_query_window() {
+        let store = FixtureStore {
+            record: Some(dateless_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response =
+            build_hike_response(&store, &weather, "x", ApiVersion::V3, Some(sample_window()))
+                .await
+                .unwrap()
+                .unwrap();
+        let VersionedHike::V3(r) = response else {
+            panic!("expected the v3 shape");
+        };
+        assert!(r.weather_available);
+    }
+
+    /// The opposite of v3: a record with no start/end has nothing v2 can read,
+    /// since v2 has no query window to fall back on.
+    // @spec API-WIN-005
+    #[tokio::test]
+    async fn v2_fails_a_dateless_record() {
+        let store = FixtureStore {
+            record: Some(dateless_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V2, None).await
+        else {
+            panic!("expected a dateless record to fail a v2 request");
+        };
+        assert_eq!(err, "hike record has no start");
+    }
+
+    /// v3 ignores the record's own dates entirely — even when it has some, the
+    /// query window governs the weather query and offset.
+    // @spec API-WIN-004
+    #[tokio::test]
+    async fn v3_uses_the_query_window_not_the_records_dates() {
+        // The record's dates would put the hike window in the fall; the query
+        // window sent below is the summer one `sample_forecast` covers.
+        let mut record = sample_record();
+        record.start = Some("2026-11-01T08:00:00-04:00".parse().unwrap());
+        record.end = Some("2026-11-01T12:00:00-04:00".parse().unwrap());
+        let store = FixtureStore {
+            record: Some(record),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response =
+            build_hike_response(&store, &weather, "x", ApiVersion::V3, Some(sample_window()))
+                .await
+                .unwrap()
+                .unwrap();
+        let VersionedHike::V3(r) = response else {
+            panic!("expected the v3 shape");
+        };
+        assert!(r.weather_available, "expected the query window's weather");
+    }
+
+    /// v3 with no query window at all — the case a malformed request would
+    /// somehow slip through as — fails rather than serving with no dates.
+    // @spec API-WIN-004
+    #[tokio::test]
+    async fn v3_fails_without_a_window() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V3, None).await
+        else {
+            panic!("expected a missing window to fail a v3 request");
+        };
+        assert_eq!(err, "start and end query parameters are required");
     }
 
     /// A sunset version answers 410 before assembly; if an unreadable clock lets
@@ -521,7 +779,8 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V1).await else {
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V1, None).await
+        else {
             panic!("expected v1 to have no response shape");
         };
         assert_eq!(err, "api version 1 has no response shape");
@@ -538,10 +797,11 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = build_hike_response(&store, &weather, "x", ApiVersion::V3)
-            .await
-            .unwrap()
-            .unwrap();
+        let response =
+            build_hike_response(&store, &weather, "x", ApiVersion::V3, Some(sample_window()))
+                .await
+                .unwrap()
+                .unwrap();
         let VersionedHike::V3(r) = response else {
             panic!("expected v3 to be served in the v3 shape");
         };

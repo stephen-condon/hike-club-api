@@ -214,8 +214,11 @@ check_header "v2 carries Deprecation" '^deprecation: true'
 check_header "v2 carries its Sunset date" '^sunset: Wed, 18 Nov 2026 00:00:00 GMT'
 check_header "v2 links the deprecation doc" '^link:.*rel="deprecation"'
 
-# @spec API-VER-008 — v3 is current: served, with no deprecation headers.
-check_status "hike under current v3" 200 "/hike/smoke-test" \
+# @spec API-VER-008, API-WIN-001 — v3 is current: served, with no deprecation
+# headers. v3 takes the hike's window as query params instead of reading the
+# record's own start/end.
+check_status "hike under current v3" 200 \
+  "/hike/smoke-test?start=2026-01-01T08%3A00%3A00-05%3A00&end=2026-01-01T12%3A00%3A00-05%3A00" \
   -H "x-api-key: $api_key" -H "x-api-version: 3"
 if grep -qiE '^(deprecation|sunset):' "$head_file"; then
   echo "  FAIL v3 carries deprecation headers" >&2
@@ -233,6 +236,20 @@ if grep -q '"conditions":' "$body_file"; then
 else
   echo "  ok   v3 carries no v2 conditions field"
 fi
+
+# @spec API-WIRE-011 — v3 carries no start/end: the client already knows the
+# window it asked for.
+if grep -qE '"(start|end)":' "$body_file"; then
+  echo "  FAIL v3 carries start/end" >&2
+  failures=$((failures + 1))
+else
+  echo "  ok   v3 carries no start/end"
+fi
+
+# @spec API-WIN-002 — v3 requires the window query params, 400 before storage.
+check_status "v3 without a window" 400 "/hike/smoke-test" \
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
+check_body "v3 without a window names the missing parameter" 'start query parameter is required'
 
 if [ "$failures" -ne 0 ]; then
   echo "smoke test failed: $failures assertion(s)" >&2
