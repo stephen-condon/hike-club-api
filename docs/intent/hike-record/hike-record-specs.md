@@ -19,6 +19,15 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 - [x] **HIKE-REC-004**: The system shall ignore fields present in the record JSON that the hike record schema does not define.
 - [x] **HIKE-REC-005**: The system shall read `id`, `start`, `end`, `meeting.lat`, `meeting.lon`, `trails`, and `mapKey` from each hike record.
 
+## Location list
+
+- [ ] **HIKE-LOC-001**: When the location list is requested, the system shall read the R2 object `resources/hike-locations.json` through the `HIKES` binding.
+- [ ] **HIKE-LOC-002**: If no object exists at `resources/hike-locations.json`, then the system shall report the location list as absent rather than as an error.
+- [ ] **HIKE-LOC-003**: If the object at `resources/hike-locations.json` carries no body, or does not deserialize into a JSON array of objects each carrying string `short_name` and `full_name` fields, then the system shall report an error rather than reporting the list as absent.
+- [ ] **HIKE-LOC-004**: When the location list is read, the system shall return its entries in stored order.
+- [ ] **HIKE-LOC-005**: The system shall accept an empty array at `resources/hike-locations.json` as a valid, empty location list.
+- [ ] **HIKE-LOC-006**: The system shall ignore fields on a location-list entry other than `short_name` and `full_name`.
+
 ## Record validation
 
 - [x] **HIKE-REC-006**: If a hike record's `start` or `end` does not parse as an RFC 3339 timestamp carrying a UTC offset, then the system shall report an error rather than serving the hike.
@@ -41,4 +50,4 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 ## Configuration
 
 - [x] **HIKE-CFG-001**: The system shall read `R2_ACCOUNT_ID` and `R2_BUCKET_NAME` from environment variables, and `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` from secrets.
-- [x] **HIKE-CFG-002**: The system shall read hike records through the `HIKES` R2 binding and mint presigned map URLs through the R2 API credentials.
+- [ ] **HIKE-CFG-002**: The system shall read hike records and the location list through the `HIKES` R2 binding and mint presigned map URLs through the R2 API credentials.
