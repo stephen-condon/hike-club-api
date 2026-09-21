@@ -1,8 +1,0 @@
-{
-  "id": "mallard-lake-forest-preserve",
-  "start": "TODO",
-  "end": "TODO",
-  "meeting": { "lat": 41.96199718978934, "lon": -88.12901344423966 },
-  "trails": ["Mallard Lake", "Mallard Connector"],
-  "mapKey": "hikes/mallard-lake-forest-preserve/map.png"
-}
