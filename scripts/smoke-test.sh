@@ -79,6 +79,13 @@ check_header "405 names the supported methods" '^allow:.*GET'
 check_status "hike under DELETE" 405 "/hike/smoke-test" -X DELETE
 check_status "locations under PUT" 405 "/hike-locations" -X PUT
 
+# @spec API-ROUTE-005 — routing is settled before the key is evaluated, so a
+# wrong key does not turn an unrouted path or an unsupported method into a 401.
+check_status "unrouted path with a wrong key" 501 "/not-a-route" \
+  -H "x-api-key: not-the-key"
+check_status "unsupported method with a wrong key" 405 "/hike/smoke-test" -X DELETE \
+  -H "x-api-key: not-the-key"
+
 # @spec API-AUTH-003 — a missing key is rejected before anything else happens.
 check_status "hike without an api key" 401 "/hike/smoke-test" \
   -H "x-api-version: 2"

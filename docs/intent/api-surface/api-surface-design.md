@@ -35,7 +35,9 @@ The cost is that adding a preserve is a deploy rather than a content change — 
 
 ## Request Admission
 
-Admission runs in a fixed order, and the order is load-bearing:
+Routing resolves before admission begins: an unrouted path and a routed path under an unsupported method are answered without the key being read, so a `501` or a `405` says the same thing to an authenticated client and an anonymous one.
+
+Admission itself runs in a fixed order, and the order is load-bearing:
 
 1. **Server configuration.** The `API_KEY` secret must be readable; if it is not, the request fails `500` before anything is compared. A worker with no key configured must not accidentally admit traffic.
 2. **API key.** The `x-api-key` header must equal `API_KEY`. A missing header and a wrong key are the same outcome — `401`, no detail.
