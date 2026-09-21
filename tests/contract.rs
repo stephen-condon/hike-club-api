@@ -302,3 +302,18 @@ fn v3_response_without_weather_matches_spec() {
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
+
+/// An absent map serializes as `null` beside `mapAvailable: false`, which the
+/// published schema accepts.
+// @spec API-RESP-010, API-WIRE-007
+#[test]
+fn v3_response_without_map_matches_spec() {
+    let validator = validator_for("HikeResponseV3");
+    let mut r = sample_response_v3(Some(sample_weather_v3()));
+    r.map = None;
+    r.map_available = false;
+    let instance = serde_json::to_value(r).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+    assert!(instance["map"].is_null());
+}
