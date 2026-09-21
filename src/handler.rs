@@ -2,7 +2,6 @@ use crate::models::{HikeResponseV2, HikeResponseV3, MapRef, MeetingPoint};
 use crate::r2::HikeStore;
 use crate::version::ApiVersion;
 use crate::weather::{WeatherSource, build_weather_v2, build_weather_v3};
-use chrono::DateTime;
 
 /// A hike response in the shape for the requested API version. `lib.rs` matches
 /// on this and serializes the appropriate variant.
@@ -56,13 +55,12 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             expires_at: expires_at.to_rfc3339(),
         });
 
-    // Parse preserving the offset (needed for v2's local-calendar-day precip
-    // timing); the instants drive window filtering.
-    let start_local = DateTime::parse_from_rfc3339(&record.start).map_err(|e| e.to_string())?;
-    let end_local = DateTime::parse_from_rfc3339(&record.end).map_err(|e| e.to_string())?;
-    let offset = start_local.timezone();
-    let start = start_local.to_utc();
-    let end = end_local.to_utc();
+    // Retrieval already parsed and validated these (HIKE-REC-008, HIKE-REC-009);
+    // preserve the offset (needed for v2's local-calendar-day precip timing)
+    // while the instants drive window filtering.
+    let offset = record.start.timezone();
+    let start = record.start.to_utc();
+    let end = record.end.to_utc();
 
     let forecast = weather_source
         .forecast(record.meeting.lat, record.meeting.lon, start, end)
@@ -81,8 +79,8 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             let weather = raw.and_then(|raw| build_weather_v2(raw, start, end, offset));
             VersionedHike::V2(HikeResponseV2 {
                 id: record.id,
-                start: record.start,
-                end: record.end,
+                start: record.start.to_rfc3339(),
+                end: record.end.to_rfc3339(),
                 meeting_point,
                 trails: record.trails,
                 map,
@@ -94,8 +92,8 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             let weather = raw.and_then(|raw| build_weather_v3(raw, start, end, offset));
             VersionedHike::V3(HikeResponseV3 {
                 id: record.id,
-                start: record.start,
-                end: record.end,
+                start: record.start.to_rfc3339(),
+                end: record.end.to_rfc3339(),
                 meeting_point,
                 trails: record.trails,
                 map_available: map.is_some(),
@@ -283,8 +281,8 @@ mod tests {
     fn sample_record() -> HikeRecord {
         HikeRecord {
             id: "blue-ridge".to_string(),
-            start: "2026-07-18T08:00:00-04:00".to_string(),
-            end: "2026-07-18T12:00:00-04:00".to_string(),
+            start: "2026-07-18T08:00:00-04:00".parse().unwrap(),
+            end: "2026-07-18T12:00:00-04:00".parse().unwrap(),
             meeting: MeetingCoords {
                 lat: 37.6,
                 lon: -79.2,
@@ -419,27 +417,6 @@ mod tests {
         assert_eq!(response.map.url, "https://example.com/map.png");
         assert!(!response.map.expires_at.is_empty());
         assert!(response.weather_available);
-    }
-
-    /// Storage failure is not weather: it ends the request rather than degrading,
-    /// because the core of a hike screen cannot be assembled without it.
-    /// A record still carrying the upload template's placeholder dates must fail
-    /// loudly rather than surfacing as a hike with mysteriously no weather.
-    // @spec HIKE-REC-006
-    #[tokio::test]
-    async fn an_unparseable_start_fails_the_request() {
-        let mut record = sample_record();
-        record.start = "TODO".to_string();
-        let store = FixtureStore {
-            record: Some(record),
-        };
-        let weather = FixtureWeather {
-            result: Ok(sample_forecast()),
-        };
-        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V2).await else {
-            panic!("expected an unparseable start to fail the request");
-        };
-        assert!(!err.is_empty());
     }
 
     /// The record's offset has to reach the v2 builder, which reports precip
