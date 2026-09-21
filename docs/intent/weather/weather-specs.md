@@ -71,7 +71,7 @@ Prefix: `WX`. Design: [`weather-design.md`](weather-design.md).
 
 - [x] **WX-OUT-003**: Under API versions 2 and 3 the system shall report `startTempF` from the first in-window period and `endTempF` from the last.
 - [x] **WX-OUT-004**: Under API version 2 the system shall report conditions as the first in-window period's condition phrase.
-- [ ] **WX-OUT-005**: Under API version 3 the system shall report `startConditions` from the first in-window period's condition phrase and `endConditions` from the last in-window period's condition phrase.
+- [x] **WX-OUT-005**: Under API version 3 the system shall report `startConditions` from the first in-window period's condition phrase and `endConditions` from the last in-window period's condition phrase.
 - [x] **WX-OUT-006**: Under API versions 2 and 3 the system shall report precipitation `expected` as true when any hour on the hike's local calendar day carries a precipitation probability at or above 50 percent, and false otherwise.
 - [x] **WX-OUT-007**: Under API versions 2 and 3 the system shall report `startsAt` as the earliest start and `endsAt` as the latest end among the hike's local-calendar-day hours at or above 50 percent precipitation probability, expressed in the hike's own UTC offset, and shall omit both when no such hour exists.
 - [x] **WX-OUT-008**: Under API versions 2 and 3 the system shall report precipitation `probabilityPct` as the in-window maximum, independent of the 50 percent threshold that governs timing.

@@ -1,4 +1,4 @@
-use crate::models::{Alert, PrecipitationV2, WeatherV2};
+use crate::models::{Alert, PrecipitationV2, WeatherV2, WeatherV3};
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -335,6 +335,34 @@ pub fn build_weather_v2(
     })
 }
 
+/// Builds the **v3** `WeatherV3` block: v2's, with conditions paired with the
+/// temperatures at both ends of the window — `startConditions` from the first
+/// in-window period, `endConditions` from the last.
+// @spec WX-OUT-005
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "API-WIRE-009 serves it in the v3 response")
+)]
+pub fn build_weather_v3(
+    raw: &RawForecast,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    offset: FixedOffset,
+) -> Option<WeatherV3> {
+    let v2 = build_weather_v2(raw, start, end, offset)?;
+    let last = *periods_in_window(&raw.periods, start, end).last()?;
+    Some(WeatherV3 {
+        start_temp_f: v2.start_temp_f,
+        end_temp_f: v2.end_temp_f,
+        start_conditions: v2.conditions,
+        end_conditions: last.short_forecast.clone(),
+        precipitation: v2.precipitation,
+        heat_index_f: v2.heat_index_f,
+        wind_chill_f: v2.wind_chill_f,
+        alerts: v2.alerts,
+    })
+}
+
 /// Precip timing over the hike's *local calendar day* (the day of `start` in its
 /// own offset): earliest start / latest end among hours at/above the "likely"
 /// threshold. Timestamps are emitted in the hike's local offset so they read
@@ -624,6 +652,34 @@ mod tests {
         assert_eq!(w.start_temp_f, 70.0);
         assert_eq!(w.end_temp_f, 80.0);
         assert_eq!(w.conditions, "Hour 8");
+    }
+
+    /// A hike that starts clear and ends in thunderstorms says so, rather than
+    /// reading as its first hour; everything else matches v2's block.
+    // @spec WX-OUT-005, WX-OUT-003
+    #[test]
+    fn v3_reports_conditions_at_both_ends_of_the_window() {
+        let raw = RawForecast {
+            periods: vec![
+                hour(8, 70.0, 40.0, 5.0, 0),
+                hour(9, 75.0, 40.0, 5.0, 0),
+                hour(10, 80.0, 40.0, 5.0, 60),
+                hour(11, 82.0, 40.0, 5.0, 0),
+            ],
+            alerts: vec![],
+        };
+        let w = build_weather_v3(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        assert_eq!(w.start_conditions, "Hour 8");
+        assert_eq!(w.end_conditions, "Hour 10");
+        let v2 = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        assert_eq!(w.start_temp_f, v2.start_temp_f);
+        assert_eq!(w.end_temp_f, v2.end_temp_f);
+        assert_eq!(
+            w.precipitation.probability_pct,
+            v2.precipitation.probability_pct
+        );
+        assert_eq!(w.alerts.len(), v2.alerts.len());
+        assert!(build_weather_v3(&RawForecast::default(), at(8, 0), at(9, 0), UTC).is_none());
     }
 
     // @spec WX-OUT-006, WX-OUT-007
