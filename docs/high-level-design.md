@@ -10,7 +10,7 @@ This API is that something: one authenticated request returns a complete, curren
 
 A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond the `worker` crate's router.
 
-**R2 is the source of truth.** This worker only ever reads it. Hike metadata is one JSON object per location in the bucket; the trail map is a PNG beside it. There is no admin app and no local mirror — `location_based/` holds a per-location *template* with the meeting coordinates and `mapKey` pre-filled and the dates left as `TODO`, which the organizer fills in and uploads with a shell script. A location's record is rewritten in place when that location is next scheduled, so the bucket holds one record per location rather than a growing history. Because the id carries no date, `start`/`end` in the R2 record are the only statement of when a hike happens.
+**R2 is the source of truth.** This worker only ever reads it; the sibling `hike-club-admin` worker, behind Cloudflare Access, is the bucket's only writer. The admin validates every record and map before it lands, so its writes are exactly the bytes this worker deserializes. Hike metadata is one JSON object per location in the bucket; the trail map is a PNG beside it. A location's record is rewritten in place when that location is next scheduled, so the bucket holds one record per location rather than a growing history. Because the id carries no date, `start`/`end` in the R2 record are the only statement of when a hike happens.
 
 **Weather is derived, not proxied.** The worker fetches from the National Weather Service, then does the interpretation: filtering periods to the hike window, computing heat index and wind chill, and raising the threshold alerts. The app receives conclusions.
 
@@ -23,7 +23,7 @@ A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond 
 ## Target Users
 
 - **The pack's iOS app** — the only client. Sends a shared API key and a version header, renders one hike screen. It cannot retry intelligently or interpret raw forecast data, so the API owes it complete, already-decided answers.
-- **The hike organizer** — publishes hikes by running `scripts/upload-hike.sh` against R2 and maintains `resources/hike-location-mapping.json`. Tolerates a CLI; will not maintain a CMS.
+- **The hike organizer** — schedules hikes and uploads trail maps through `hike-club-admin`, and maintains `resources/hike-location-mapping.json`. Reaches this API only through the app.
 - **Families on hike morning** — indirect users, on phones, in a parking lot, possibly with no signal by the time they arrive. Freshness matters less than the screen being complete when it loads.
 
 ## Goals
@@ -39,9 +39,9 @@ A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond 
 ## Non-Goals
 
 - **No public access.** A WAF rule filters unauthenticated traffic at the edge and the worker re-checks the key; there is no signup, no per-user identity, no rate limiting beyond what Cloudflare gives free.
-- **No management UI.** Publishing a hike is a shell script against R2. A management app is more surface than one organizer scheduling one hike a month needs.
+- **No management UI in this worker.** Writing lives in `hike-club-admin`, a separate worker behind Cloudflare Access, so this worker's deployed surface stays read-only and its only credential is the app's API key.
 - **No hike history.** One record per location, overwritten on reschedule. Past hikes are not archived and are not queryable.
-- **No write API.** Everything is `GET`. Content changes happen out-of-band through R2.
+- **No write API.** Everything is `GET`. Content changes reach R2 through `hike-club-admin`.
 - **No database.** No D1, no KV, no Durable Objects. R2 plus the Cache API covers the access patterns.
 - **No quantitative precipitation.** Probability and timing only; NWS hourly forecast does not expose amount without a second gridpoint fetch.
 
@@ -67,6 +67,7 @@ flowchart TD
         Orch --> Shape["versioned response<br/>(api-surface)"]
     end
 
+    Admin["hike-club-admin Worker<br/>(only writer)"] -->|"records, maps"| R2
     Store -->|"hikes/{id}.json"| R2[(R2 bucket)]
     Store -.->|SigV4 presigned URL| R2
     Wx --> Cache[(Cache API)]
@@ -120,8 +121,8 @@ The boundaries follow the trait seams: `api-surface` depends on `hike-record` an
 
 - `openapi.yaml` — the published response contract for every served version.
 - `resources/hike-location-mapping.json` — location slug to display name, embedded at compile time and served verbatim by `GET /hike-locations`.
-- `location_based/` — per-location record templates staged for upload; R2 holds the live records.
-- `scripts/upload-hike.sh` — publishes a hike's metadata and map to R2.
+- `hike-club-admin` (sibling repo) — the only writer to the R2 bucket; its `openapi.yaml` `HikeRecord` schema defines the stored record bytes.
+- `docs/system-design.md` in the parent `cubscouts` workspace repo — the contracts between this API, the admin, and the iOS app, and the order to change them in.
 - [NWS API](https://www.weather.gov/documentation/services-web-api) — `/points`, `/gridpoints/.../forecast/hourly`, `/stations/.../observations`, `/alerts/active`.
 - [RFC 8594](https://www.rfc-editor.org/rfc/rfc8594) — the `Sunset` HTTP header.
 - [Cloudflare Workers limits](https://developers.cloudflare.com/workers/platform/limits/) — free-tier request, CPU, and R2 operation budgets.

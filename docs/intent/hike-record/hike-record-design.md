@@ -38,7 +38,7 @@ The offset in `start`/`end` is significant, not decoration. It is preserved thro
 
 `mapKey` is stored rather than derived. It lets a map live somewhere other than the conventional path — a shared map for two adjacent preserves, say — without a schema change. Because it is free-form, the object it names is confirmed to exist before a URL for it is returned.
 
-`location_based/` holds a template per location with coordinates and `mapKey` pre-filled and the dates left as `TODO`, so publishing a hike is filling in two timestamps and a trail list. This worker never writes to the bucket.
+This worker never writes to the bucket. Records and maps reach it only through the sibling `hike-club-admin` worker, which rejects malformed or inverted timestamps and out-of-range coordinates and derives `mapKey` from the location slug before writing (`admin:HIKE-REC-004`, `admin:HIKE-REC-007`, `admin:TRUST-007`). This worker still validates every record it reads: the bucket is shared storage, not a trusted input.
 
 ## Retrieval
 
@@ -127,13 +127,11 @@ The presign TTL is a compile-time constant. It is the kind of value that only ch
 ### Deferred
 
 1. **A stale record is indistinguishable from a current one.** With no date in the id, a record whose `end` has passed is served as a completed hike — correctly, but silently. Whether the API should signal "this hike is over" rather than leaving the client to compare timestamps is unsettled.
-2. **Nothing catches an authoring mistake at publishing time.** A record with unfilled template dates, a wrong `mapKey`, or coordinates outside NWS coverage is rejected at read time, on a request a family is waiting on. Surfacing these when the record is written belongs to the admin application and is outside this project's scope.
-3. **Coordinates are not checked against NWS coverage.** A meeting point outside it fails late and softly, as a hike with no weather, in the weather segment rather than here.
-4. **Map images are never invalidated.** Re-uploading a map under the same key leaves already-issued URLs pointing at the new bytes, which is usually right, but no versioning scheme exists if it ever isn't.
+2. **Coordinates are not checked against NWS coverage.** A meeting point outside it fails late and softly, as a hike with no weather, in the weather segment rather than here.
+3. **Map images are never invalidated.** Re-uploading a map under the same key leaves already-issued URLs pointing at the new bytes, which is usually right, but no versioning scheme exists if it ever isn't.
 
 ## References
 
-- `scripts/upload-hike.sh` — the publishing path.
-- `location_based/` — per-location record templates.
+- `hike-club-admin` (sibling repo) — the only writer; its `openapi.yaml` `HikeRecord` schema defines the stored record bytes.
 - [AWS SigV4 query signing](https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html) — the presigning algorithm.
 - [R2 S3 API compatibility](https://developers.cloudflare.com/r2/api/s3/api/) — endpoint and addressing rules.
