@@ -24,6 +24,10 @@ use worker::*;
 /// compile time and served verbatim by `GET /hike-locations`.
 const HIKE_LOCATIONS_JSON: &str = include_str!("../resources/hike-location-mapping.json");
 
+/// Routing is settled before admission: the catch-all answers an unrouted path
+/// itself, and each handler's method guard runs ahead of its `API_KEY` read, so
+/// a 501 or a 405 never depends on the key that came with the request.
+// @spec API-ROUTE-005
 #[event(fetch)]
 async fn fetch(req: Request, env: Env, _ctx: Context) -> Result<Response> {
     console_error_panic_hook::set_once();
