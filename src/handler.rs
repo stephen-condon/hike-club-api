@@ -101,22 +101,19 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
         ApiVersion::V2 => {
             // v2's shape cannot express an absent map, so it fails the request.
             let map = map.ok_or_else(|| format!("map object not found: {}", record.map_key))?;
-            // v2 has no window of its own: the record's start/end are the only
-            // source, so a dateless record (written for v3 only) fails here.
+            // v2 has no window of its own: the record's start/end — already
+            // parsed and validated during retrieval (HIKE-REC-008, HIKE-REC-009)
+            // — are the only source, so a dateless record (written for v3 only)
+            // fails here.
             let record_start = record
                 .start
                 .ok_or_else(|| "hike record has no start".to_string())?;
             let record_end = record
                 .end
                 .ok_or_else(|| "hike record has no end".to_string())?;
-            // Parse preserving the offset (needed for v2's local-calendar-day
-            // precip timing); the instants drive window filtering.
-            let start_local =
-                DateTime::parse_from_rfc3339(&record_start).map_err(|e| e.to_string())?;
-            let end_local = DateTime::parse_from_rfc3339(&record_end).map_err(|e| e.to_string())?;
-            let offset = start_local.timezone();
-            let start = start_local.to_utc();
-            let end = end_local.to_utc();
+            let offset = record_start.timezone();
+            let start = record_start.to_utc();
+            let end = record_end.to_utc();
 
             let forecast = weather_source
                 .forecast(record.meeting.lat, record.meeting.lon, start, end)
@@ -127,8 +124,8 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
                 .and_then(|raw| build_weather_v2(raw, start, end, offset));
             VersionedHike::V2(HikeResponseV2 {
                 id: record.id,
-                start: record_start,
-                end: record_end,
+                start: record_start.to_rfc3339(),
+                end: record_end.to_rfc3339(),
                 meeting_point,
                 trails: record.trails,
                 map,
@@ -417,8 +414,8 @@ mod tests {
     fn sample_record() -> HikeRecord {
         HikeRecord {
             id: "blue-ridge".to_string(),
-            start: Some("2026-07-18T08:00:00-04:00".to_string()),
-            end: Some("2026-07-18T12:00:00-04:00".to_string()),
+            start: Some("2026-07-18T08:00:00-04:00".parse().unwrap()),
+            end: Some("2026-07-18T12:00:00-04:00".parse().unwrap()),
             meeting: MeetingCoords {
                 lat: 37.6,
                 lon: -79.2,
@@ -583,28 +580,6 @@ mod tests {
         assert!(response.weather_available);
     }
 
-    /// Storage failure is not weather: it ends the request rather than degrading,
-    /// because the core of a hike screen cannot be assembled without it.
-    /// A record still carrying the upload template's placeholder dates must fail
-    /// loudly rather than surfacing as a hike with mysteriously no weather.
-    // @spec HIKE-REC-006
-    #[tokio::test]
-    async fn an_unparseable_start_fails_the_request() {
-        let mut record = sample_record();
-        record.start = Some("TODO".to_string());
-        let store = FixtureStore {
-            record: Some(record),
-        };
-        let weather = FixtureWeather {
-            result: Ok(sample_forecast()),
-        };
-        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V2, None).await
-        else {
-            panic!("expected an unparseable start to fail the request");
-        };
-        assert!(!err.is_empty());
-    }
-
     /// The record's offset has to reach the v2 builder, which reports precip
     /// timing in it — a UTC-normalised instant would lose the hiker's day.
     // @spec API-RESP-008
@@ -756,8 +731,8 @@ mod tests {
         // The record's dates would put the hike window in the fall; the query
         // window sent below is the summer one `sample_forecast` covers.
         let mut record = sample_record();
-        record.start = Some("2026-11-01T08:00:00-04:00".to_string());
-        record.end = Some("2026-11-01T12:00:00-04:00".to_string());
+        record.start = Some("2026-11-01T08:00:00-04:00".parse().unwrap());
+        record.end = Some("2026-11-01T12:00:00-04:00".parse().unwrap());
         let store = FixtureStore {
             record: Some(record),
         };

@@ -1,3 +1,4 @@
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,13 +103,18 @@ pub struct WeatherV3 {
 /// caller supplies the hike's window per request (`API-WIN-*`). `start`/`end`
 /// are optional and read only to serve version 2, which has no window of its
 /// own; a record written without them can still be served under version 3.
+///
+/// `start`/`end` are parsed and validated by `r2::parse_hike_record` before a
+/// value of this type exists, so holding a `Some` means it already checked
+/// out: it parses as RFC 3339 with an offset, and — when both `start` and
+/// `end` are present — `end` is strictly after `start`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeRecord {
     pub id: String,
     #[serde(default)]
-    pub start: Option<String>,
+    pub start: Option<DateTime<FixedOffset>>,
     #[serde(default)]
-    pub end: Option<String>,
+    pub end: Option<DateTime<FixedOffset>>,
     pub meeting: MeetingCoords,
     pub trails: Vec<String>,
     #[serde(rename = "mapKey")]

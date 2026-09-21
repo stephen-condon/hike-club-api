@@ -31,9 +31,9 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 ## Record validation
 
 - [x] **HIKE-REC-006**: When serving API version 2, if a hike record's `start` or `end` is absent or does not parse as an RFC 3339 timestamp carrying a UTC offset, then the system shall report an error rather than serving the hike. API version 3 never reads the record's `start`/`end` and so is unaffected by either (`api:API-WIN-004`, `api:API-WIN-005`).
-- [ ] **HIKE-REC-007**: If a hike record's `end` is not strictly after its `start`, then the system shall report an error rather than serving the hike.
-- [ ] **HIKE-REC-008**: The system shall validate a hike record's timestamps during retrieval, so that no consumer receives a record it must itself parse or check.
-- [ ] **HIKE-REC-009**: The system shall return each retrieved hike record with its `start` and `end` already parsed, retaining the UTC offset each was written with.
+- [x] **HIKE-REC-007**: Where a hike record carries both `start` and `end`, if `end` is not strictly after `start`, then the system shall report an error rather than serving the hike.
+- [x] **HIKE-REC-008**: The system shall validate a hike record's timestamps during retrieval, so that no consumer receives a record it must itself parse or check.
+- [x] **HIKE-REC-009**: The system shall return each retrieved hike record with its `start` and `end` already parsed, retaining the UTC offset each was written with, where either is present.
 
 ## Map presigning
 

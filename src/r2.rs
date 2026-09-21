@@ -28,6 +28,27 @@ pub fn parse_locations(bytes: &[u8]) -> Result<Vec<HikeLocation>, String> {
     serde_json::from_slice(bytes).map_err(|e| e.to_string())
 }
 
+/// Parses a stored hike record and checks the invariants a parse alone can't
+/// express, so a value that reaches the caller has already been validated:
+/// nothing downstream re-parses `start`/`end` or works with a range that
+/// cannot exist. `start`/`end` are optional — a record written for API
+/// version 3 only may carry neither — so the order check applies only where
+/// both are present.
+// @spec HIKE-REC-006, HIKE-REC-007, HIKE-REC-008, HIKE-REC-009
+pub fn parse_hike_record(bytes: &[u8]) -> Result<HikeRecord, String> {
+    let record: HikeRecord = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+    if let (Some(start), Some(end)) = (record.start, record.end)
+        && end <= start
+    {
+        return Err(format!(
+            "hike record end ({}) is not after start ({})",
+            end.to_rfc3339(),
+            start.to_rfc3339()
+        ));
+    }
+    Ok(record)
+}
+
 pub struct R2Config {
     pub account_id: String,
     pub bucket: String,
@@ -171,6 +192,121 @@ mod tests {
         let record: HikeRecord = serde_json::from_str(json).unwrap();
         assert_eq!(record.id, "blue-ridge");
         assert_eq!(record.trails, vec!["Blue Ridge Loop".to_string()]);
+    }
+
+    /// A record still carrying the upload template's placeholder dates must
+    /// fail loudly rather than surfacing as a hike with mysteriously no
+    /// weather.
+    // @spec HIKE-REC-006
+    #[test]
+    fn parse_hike_record_rejects_an_unparseable_start() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "TODO",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        assert!(parse_hike_record(json).is_err());
+    }
+
+    /// `end`/`start` must carry a UTC offset, not just a local time.
+    // @spec HIKE-REC-006
+    #[test]
+    fn parse_hike_record_rejects_a_timestamp_with_no_offset() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "2026-07-18T08:00:00",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        assert!(parse_hike_record(json).is_err());
+    }
+
+    /// A record that parses arrives with its timestamps already parsed, not
+    /// as strings a caller would have to parse again — and with the offset
+    /// it was written with, not normalised to UTC.
+    // @spec HIKE-REC-008, HIKE-REC-009
+    #[test]
+    fn parse_hike_record_returns_already_parsed_offset_preserving_timestamps() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "2026-07-18T08:00:00-04:00",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        let record = parse_hike_record(json).unwrap();
+        // Typed as `DateTime<FixedOffset>` already — no further parsing needed.
+        assert_eq!(
+            record.start.unwrap().to_rfc3339(),
+            "2026-07-18T08:00:00-04:00"
+        );
+        assert_eq!(
+            record.end.unwrap().to_rfc3339(),
+            "2026-07-18T12:00:00-04:00"
+        );
+    }
+
+    /// A record written for API version 3 only may carry no date at all —
+    /// version 3 sends its own window per request and never reads these.
+    // @spec HIKE-REC-005, HIKE-REC-007
+    #[test]
+    fn parse_hike_record_accepts_a_record_with_no_dates() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        let record = parse_hike_record(json).unwrap();
+        assert!(record.start.is_none());
+        assert!(record.end.is_none());
+    }
+
+    /// A reversed or zero-length range describes a hike that cannot be
+    /// walked; the symptom must be a rejected record, not one that silently
+    /// yields no in-window weather.
+    // @spec HIKE-REC-007
+    #[test]
+    fn parse_hike_record_rejects_an_end_that_is_not_after_start() {
+        for (start, end) in [
+            ("2026-07-18T12:00:00-04:00", "2026-07-18T08:00:00-04:00"), // reversed
+            ("2026-07-18T08:00:00-04:00", "2026-07-18T08:00:00-04:00"), // zero-length
+        ] {
+            let json = format!(
+                r#"{{
+                    "id": "blue-ridge",
+                    "start": "{start}",
+                    "end": "{end}",
+                    "meeting": {{ "lat": 37.6, "lon": -79.2 }},
+                    "trails": ["Blue Ridge Loop"],
+                    "mapKey": "hikes/blue-ridge/map.png"
+                }}"#
+            );
+            assert!(
+                parse_hike_record(json.as_bytes()).is_err(),
+                "should reject start={start} end={end}"
+            );
+        }
+    }
+
+    // @spec HIKE-REC-007
+    #[test]
+    fn parse_hike_record_accepts_an_end_strictly_after_start() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "2026-07-18T08:00:00-04:00",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        assert!(parse_hike_record(json).is_ok());
     }
 
     // @spec HIKE-LOC-004
