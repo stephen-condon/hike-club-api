@@ -7,21 +7,22 @@ prefix: HIKE
 
 ## Context and Design Philosophy
 
-Hike content — when, where, which trails, and the trail map — lives in R2 and nowhere else. This segment owns the bucket's object layout, the record schema, retrieval, and the presigned URLs that let a client fetch a map image without the worker touching its bytes.
+Hike content — when, where, which trails, and the trail map — lives in R2 and nowhere else, as does the list of locations a hike can be scheduled at. This segment owns the bucket's object layout, the record and location-list schemas, retrieval, and the presigned URLs that let a client fetch a map image without the worker touching its bytes.
 
-Two constraints shape everything here. The worker must not proxy megabyte-scale images, because CPU time and bandwidth are the free tier's scarcest resources. And there is no authoring application: records are written by an organizer running a script, which makes the schema's readability and the layout's predictability part of the design rather than an implementation detail.
+Two constraints shape everything here. The worker must not proxy megabyte-scale images, because CPU time and bandwidth are the free tier's scarcest resources. And the bucket is written by a different worker, `hike-club-admin`, so the layout and schemas are a contract between two deployables rather than an implementation detail of one.
 
 ## Object Layout
 
 ```
 hike-club-api/                        (R2 bucket)
 ├── hikes/{id}.json                   the hike record
-└── hikes/{id}/map.png                the trail map
+├── hikes/{id}/map.png                the trail map
+└── resources/hike-locations.json     the location list
 ```
 
-`{id}` is a location slug — the `short_name` from `resources/hike-location-mapping.json`, such as `blackwell-forest-preserve`. It carries no date component.
+`{id}` is a location slug — a `short_name` from the location list, such as `blackwell-forest-preserve`. It carries no date component.
 
-One object per location, overwritten each time that location is scheduled. This makes `/hike/{id}` links permanent across reschedules and keeps the bucket's object count equal to the number of preserves the pack visits rather than growing without bound. The cost is that a hike's `start`/`end` are the only statement of when it happens, and a record left with last season's dates is served as though current — the failure mode the upload path has to guard against.
+One object per location, overwritten each time that location is scheduled. This makes `/hike/{id}` links permanent across reschedules and keeps the bucket's object count equal to the number of preserves the pack visits rather than growing without bound. The cost is that a hike's `start`/`end` are the only statement of when it happens, and a record left with last season's dates is served as though current — the failure mode the admin exists to surface.
 
 ## Record Schema
 
@@ -64,7 +65,21 @@ The first two fail the request, because each means the record describes a hike t
 
 The map is different. Its object is probed for existence — metadata, not bytes — before the URL is signed, because signing is arithmetic and would happily produce a valid-looking URL for an object that was never uploaded, leaving the client to discover the mistake as a broken image. But a hike with no map is still a hike worth showing, so a missing object is reported as an absent map rather than a failure, and the API surface decides what its version can say about that. One metadata read per hike request is a Class B operation, and the free tier allows ten million a month against a pack that hikes monthly.
 
-The publishing path is what catches an authoring mistake early; these checks are the backstop for when it does not. A record still carrying the template's `"start": "TODO"` fails here, correctly and loudly.
+The admin rejects these mistakes before it writes; these checks are the backstop for a record that reached the bucket some other way.
+
+## Location List
+
+`resources/hike-locations.json` is a JSON array of `{short_name, full_name}` objects: the slug that names a hike's objects and the display name the app shows in its picker. The admin writes the whole list at once and treats it as the allowlist of slugs it may create objects for (`admin:LOC-001`, `admin:LOC-009`).
+
+`get_locations()` reads it and, like `get_hike`, returns a parsed value rather than bytes:
+
+- **Object absent** → `Ok(None)`. Unlike a missing hike, this is not an ordinary answer: the bucket always holds a list once it has been seeded, so its absence is a deployment fault — the bucket was never seeded — and the API surface reports it as misconfiguration, not as an upstream error.
+- **Object present but unreadable** — no body, or JSON that does not deserialize into an array of `{short_name, full_name}` → `Err`.
+- **Object present and valid** → `Ok(Some(list))`, in stored order. An empty array is valid: it is how the admin says no location is schedulable.
+
+Unknown fields on an entry are ignored, as they are on a record. The admin enforces slug syntax, name length, uniqueness and the entry cap when it writes (`admin:LOC-004`..`-007`); this segment does not repeat those checks, because nothing it serves depends on them. The app treats a slug as an opaque path segment and escapes it itself (`app:TRAIL-012`, `-013`).
+
+There is no copy of the list in the worker. Keeping one as a fallback would mean serving an out-of-date list during exactly the R2 faults it was meant to cover, and the app replaces its cached list with any list it receives.
 
 ## Presigned Map URLs
 
@@ -89,7 +104,7 @@ Percent-encoding follows SigV4's rules rather than a general URL encoder: unrese
 
 | Name | Kind | Purpose |
 |---|---|---|
-| `HIKES` | R2 binding | Reading hike records |
+| `HIKES` | R2 binding | Reading hike records and the location list |
 | `R2_ACCOUNT_ID` | var | Presign hostname |
 | `R2_BUCKET_NAME` | var | Presign path |
 | `R2_ACCESS_KEY_ID` | secret | SigV4 credential |
@@ -112,6 +127,8 @@ The presign TTL is a compile-time constant. It is the kind of value that only ch
 | Time-range validation | `end` must be strictly after `start` | Trust the record; clamp silently | A reversed or zero-length range yields no in-window weather periods, so without the check the symptom is a hike that mysteriously has no weather rather than a record that is wrong. |
 | Presign TTL | Compile-time constant | Environment variable | Only changes if client caching behavior changes; a var invites per-environment drift. `[inferred]` |
 | Missing vs. malformed record | `Ok(None)` vs. `Err` | Treat both as not-found | A malformed record is an authoring fault; reporting it as `404` sends the organizer looking for a missing upload instead of a broken one. |
+| Location list source | R2 object only | Embedded in the binary; R2 with the embedded copy as fallback | Adding a preserve becomes an admin edit, not a deploy. A fallback copy could only be served during an R2 fault, when it would be out of date, and the app would overwrite a good cached list with it. |
+| Location-list validation | Shape only: an array of `{short_name, full_name}` strings | Re-check the admin's slug and length rules; serve the bytes verbatim | The admin is the gate for content rules and nothing here depends on them. Parsing the shape still catches a corrupt object before the app does. |
 | Clock injection | `now` passed into the pure signer | Read the clock inside the signer | The Workers clock cannot run under `cargo test`; injecting it keeps signature logic inside the coverage gate. |
 
 ## Open Questions & Future Decisions
