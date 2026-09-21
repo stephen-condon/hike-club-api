@@ -49,7 +49,7 @@ Key comparison is ordinary equality rather than constant-time. The header is a s
 
 ## Version Negotiation and Deprecation
 
-`x-api-version` carries a bare integer. `1` and `2` are supported; a missing header, an unknown number, and a non-integer are all rejected identically with `400`. There is no default version.
+`x-api-version` carries a bare integer naming a version in the registry below; a missing header, an unknown number, and a non-integer are all rejected identically with `400`. There is no default version.
 
 A version registry maps each version to a sunset date or to nothing:
 

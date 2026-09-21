@@ -107,7 +107,7 @@ fn negotiate_version(req: &Request) -> std::result::Result<ApiVersion, Response>
 }
 
 /// Stamps RFC 8594 deprecation headers when the served version is deprecated.
-/// v1 responses carry these; v2 responses don't. See `version::sunset`.
+/// A version with a registry sunset date carries these; the current one does not.
 // @spec API-VER-006, API-VER-007
 fn with_deprecation(mut resp: Response, version: ApiVersion) -> Result<Response> {
     if let Some(sunset_date) = sunset(version) {

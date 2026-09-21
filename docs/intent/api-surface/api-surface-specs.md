@@ -29,7 +29,7 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 - [x] **API-VER-005**: While the requested API version's sunset date is at or before the current time, the system shall respond 410 with a body naming that version, its sunset date, and the API versions not past their sunset.
 - [x] **API-VER-006**: While the requested API version is deprecated and its sunset date is in the future, the system shall serve the response in full and stamp `Deprecation: true`, a `Sunset` header carrying that version's date, and a `Link` header referencing the OpenAPI document with `rel="deprecation"`.
 - [x] **API-VER-007**: The system shall stamp `Deprecation`, `Sunset`, and `Link` headers only on successful responses, and on no error response.
-- [ ] **API-VER-008**: The system shall record API version 1 as sunset on `Thu, 20 Aug 2026 00:00:00 GMT`, API version 2 as deprecated with a sunset of `Wed, 18 Nov 2026 00:00:00 GMT`, and API version 3 as current.
+- [x] **API-VER-008**: The system shall record API version 1 as sunset on `Thu, 20 Aug 2026 00:00:00 GMT`, API version 2 as deprecated with a sunset of `Wed, 18 Nov 2026 00:00:00 GMT`, and API version 3 as current.
 - [ ] **API-VER-009**: The system shall keep a sunset API version in the version registry after its response shape is removed, so that a request naming it answers 410 rather than the 400 given to an unknown version.
 - [x] **API-VER-010**: The system shall evaluate a version's sunset against a current time supplied to it, so that sunset enforcement is exercised in tests without the Workers runtime clock.
 
