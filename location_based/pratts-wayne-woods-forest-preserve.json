@@ -1,8 +1,0 @@
-{
-  "id": "pratts-wayne-woods-forest-preserve",
-  "start": "2026-10-04T09:00:00-05:00",
-  "end": "2026-10-04T12:00:00-05:00",
-  "meeting": { "lat": 41.96820012540542, "lon": -88.24079246861736 },
-  "trails": ["Lake", "West"],
-  "mapKey": "hikes/pratts-wayne-woods-forest-preserve/map.png"
-}

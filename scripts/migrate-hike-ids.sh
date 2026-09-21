@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One-shot migration: hikes/YYYY-MM-DD-<slug>.json  ->  hikes/<slug>.json
 #
-# Hike ids dropped their date component (see scripts/upload-hike.sh). This moves
+# Hike ids dropped their date component. This moves
 # the existing dated metadata objects onto the new keys and deletes the originals.
 # Safe to delete this script once it has been run against the bucket.
 #
