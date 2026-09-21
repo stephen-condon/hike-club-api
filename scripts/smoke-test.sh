@@ -224,6 +224,16 @@ else
   echo "  ok   v3 carries no deprecation headers"
 fi
 
+# @spec API-WIRE-009 — v3 answers in its own shape: a map flagged available, and
+# no v2 `conditions` field.
+check_body "v3 flags its map as available" '"mapAvailable":true'
+if grep -q '"conditions":' "$body_file"; then
+  echo "  FAIL v3 carries v2's conditions field" >&2
+  failures=$((failures + 1))
+else
+  echo "  ok   v3 carries no v2 conditions field"
+fi
+
 if [ "$failures" -ne 0 ]; then
   echo "smoke test failed: $failures assertion(s)" >&2
   exit 1
