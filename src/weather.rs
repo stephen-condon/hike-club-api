@@ -1,4 +1,4 @@
-use crate::models::{Alert, Precipitation, PrecipitationV2, Weather, WeatherV2};
+use crate::models::{Alert, PrecipitationV2, WeatherV2};
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -229,7 +229,7 @@ pub(crate) fn parse_observations(obs: &serde_json::Value) -> Vec<RawPeriod> {
     periods
 }
 
-/// precip probability above which we call it "predicted" for the v1 alert rule.
+/// precip probability above which we call it "predicted" for the precip alert.
 /// ponytail: any nonzero threshold is a judgment call; tune here if it's noisy.
 const PRECIP_ALERT_THRESHOLD_PCT: u8 = 1;
 /// v2 precip-*timing* threshold: only hours this likely count as "rain expected".
@@ -288,47 +288,6 @@ fn wind_chill_alert(wind_chill_f: Option<f64>) -> Option<Alert> {
                 "Wind chill of {wc:.0}\u{b0}F is below {WIND_CHILL_ALERT_F:.0}\u{b0}F"
             ),
         })
-}
-
-/// Builds the **v1** `Weather` block for the hike window. Behavior preserved from
-/// the original: single temp (first period), passes through *all* active NWS
-/// alerts. Now filters the full forecast to the window itself.
-pub fn build_weather(
-    raw: &RawForecast,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> Option<Weather> {
-    let periods = periods_in_window(&raw.periods, start, end);
-    let representative = *periods.first()?;
-
-    let max_prob = max_precip_prob(&periods);
-    let heat_index_f = max_heat_index(&periods);
-    let wind_chill_f = min_wind_chill(&periods);
-
-    let mut alerts = Vec::new();
-    alerts.extend(precip_alert(max_prob));
-    // v1 passes through every active NWS alert unchanged (no time filtering).
-    alerts.extend(raw.alerts.iter().map(|a| Alert {
-        kind: "nws_alert".to_string(),
-        message: a.event.clone(),
-    }));
-    alerts.extend(heat_alert(heat_index_f));
-    alerts.extend(wind_chill_alert(wind_chill_f));
-
-    Some(Weather {
-        temperature_f: representative.temp_f,
-        conditions: representative.short_forecast.clone(),
-        precipitation: Precipitation {
-            probability_pct: max_prob,
-            // ponytail: NWS hourly forecast doesn't expose quantitative precip
-            // amount, only probability. Upgrade: pull QPF from the /gridpoint
-            // endpoint if an amount estimate becomes worth the extra fetch.
-            amount_in: 0.0,
-        },
-        heat_index_f,
-        wind_chill_f,
-        alerts,
-    })
 }
 
 /// Builds the **v2** `WeatherV2` block: start/end temps, precip timing across the
@@ -487,7 +446,6 @@ mod tests {
     // @spec WX-WIN-002
     #[test]
     fn no_periods_means_no_weather() {
-        assert!(build_weather(&RawForecast::default(), at(8, 0), at(9, 0)).is_none());
         assert!(build_weather_v2(&RawForecast::default(), at(8, 0), at(9, 0), UTC).is_none());
     }
 
@@ -605,14 +563,14 @@ mod tests {
 
     // @spec WX-WIN-001
     #[test]
-    fn build_weather_ignores_periods_outside_the_window() {
+    fn weather_ignores_periods_outside_the_window() {
         // 08:00 period is in-window; a hot 20:00 period must not leak into metrics.
         let raw = RawForecast {
             periods: vec![hour(8, 70.0, 40.0, 5.0, 0), hour(20, 99.0, 90.0, 5.0, 80)],
             alerts: vec![],
         };
-        let w = build_weather(&raw, at(8, 0), at(9, 0)).unwrap();
-        assert_eq!(w.temperature_f, 70.0);
+        let w = build_weather_v2(&raw, at(8, 0), at(9, 0), UTC).unwrap();
+        assert_eq!(w.start_temp_f, 70.0);
         assert_eq!(w.precipitation.probability_pct, 0);
         assert!(w.alerts.is_empty());
     }
@@ -620,7 +578,7 @@ mod tests {
     // @spec WX-ALERT-004
     #[test]
     fn mild_conditions_produce_no_alerts() {
-        let w = build_weather(&one_period(70.0, 40.0, 5.0, 0), at(8, 0), at(9, 0)).unwrap();
+        let w = build_weather_v2(&one_period(70.0, 40.0, 5.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.alerts.is_empty());
         assert!(w.heat_index_f.is_none());
         assert!(w.wind_chill_f.is_none());
@@ -629,7 +587,7 @@ mod tests {
     // @spec WX-ALERT-002, WX-ALERT-006, WX-ALERT-009
     #[test]
     fn hot_humid_triggers_heat_index_alert() {
-        let w = build_weather(&one_period(95.0, 70.0, 5.0, 0), at(8, 0), at(9, 0)).unwrap();
+        let w = build_weather_v2(&one_period(95.0, 70.0, 5.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.heat_index_f.unwrap() > HEAT_INDEX_ALERT_F);
         assert!(w.alerts.iter().any(|a| a.kind == "heat_index"));
     }
@@ -637,7 +595,8 @@ mod tests {
     // @spec WX-ALERT-003, WX-ALERT-007, WX-ALERT-009
     #[test]
     fn cold_windy_triggers_wind_chill_alert() {
-        let w = build_weather(&one_period(20.0, 40.0, 15.0, 0), at(8, 0), at(9, 0)).unwrap();
+        let w =
+            build_weather_v2(&one_period(20.0, 40.0, 15.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.wind_chill_f.unwrap() < WIND_CHILL_ALERT_F);
         assert!(w.alerts.iter().any(|a| a.kind == "wind_chill"));
     }
@@ -645,23 +604,9 @@ mod tests {
     // @spec WX-ALERT-005, WX-ALERT-009
     #[test]
     fn any_precip_probability_triggers_precip_alert() {
-        let w = build_weather(&one_period(70.0, 40.0, 5.0, 20), at(8, 0), at(9, 0)).unwrap();
+        let w =
+            build_weather_v2(&one_period(70.0, 40.0, 5.0, 20), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.alerts.iter().any(|a| a.kind == "precip"));
-    }
-
-    #[test]
-    fn v1_passes_through_all_active_nws_alerts_regardless_of_time() {
-        let raw = RawForecast {
-            periods: vec![hour(8, 70.0, 40.0, 5.0, 0)],
-            // ends long before the hike — v1 still passes it through (frozen behavior)
-            alerts: vec![alert("Flash Flood Watch", Some(at(0, 0)), Some(at(2, 0)))],
-        };
-        let w = build_weather(&raw, at(8, 0), at(9, 0)).unwrap();
-        assert!(
-            w.alerts
-                .iter()
-                .any(|a| a.kind == "nws_alert" && a.message == "Flash Flood Watch")
-        );
     }
 
     // @spec WX-OUT-003, WX-OUT-004

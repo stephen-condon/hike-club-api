@@ -26,31 +26,10 @@ pub struct MapRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Precipitation {
-    #[serde(rename = "probabilityPct")]
-    pub probability_pct: u8,
-    #[serde(rename = "amountIn")]
-    pub amount_in: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Alert {
     #[serde(rename = "type")]
     pub kind: String,
     pub message: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Weather {
-    #[serde(rename = "temperatureF")]
-    pub temperature_f: f64,
-    pub conditions: String,
-    pub precipitation: Precipitation,
-    #[serde(rename = "heatIndexF")]
-    pub heat_index_f: Option<f64>,
-    #[serde(rename = "windChillF")]
-    pub wind_chill_f: Option<f64>,
-    pub alerts: Vec<Alert>,
 }
 
 /// v2 precipitation: probability plus *when* precip is expected across the hike's
@@ -70,7 +49,7 @@ pub struct PrecipitationV2 {
 }
 
 /// v2 weather block: start/end temps, precip timing, alerts filtered to the hike
-/// window. `temperatureF` and the always-zero `amountIn` from v1 are dropped.
+/// window.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeatherV2 {
     #[serde(rename = "startTempF")]
@@ -107,23 +86,7 @@ pub struct MeetingCoords {
     pub lon: f64,
 }
 
-/// The full GET /hike/{id} response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HikeResponse {
-    pub id: String,
-    pub start: String,
-    pub end: String,
-    #[serde(rename = "meetingPoint")]
-    pub meeting_point: MeetingPoint,
-    pub trails: Vec<String>,
-    pub map: MapRef,
-    #[serde(rename = "weatherAvailable")]
-    pub weather_available: bool,
-    pub weather: Option<Weather>,
-}
-
-/// The full GET /hike/{id} response under `x-api-version: 2`. Identical to
-/// `HikeResponse` except the weather block is `WeatherV2`.
+/// The full GET /hike/{id} response under `x-api-version: 2`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeResponseV2 {
     pub id: String,

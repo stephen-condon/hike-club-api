@@ -1,13 +1,12 @@
-use crate::models::{HikeResponse, HikeResponseV2, MapRef, MeetingPoint};
+use crate::models::{HikeResponseV2, MapRef, MeetingPoint};
 use crate::r2::HikeStore;
 use crate::version::ApiVersion;
-use crate::weather::{WeatherSource, build_weather, build_weather_v2};
+use crate::weather::{WeatherSource, build_weather_v2};
 use chrono::DateTime;
 
 /// A hike response in the shape for the requested API version. `lib.rs` matches
 /// on this and serializes the appropriate variant.
 pub enum VersionedHike {
-    V1(HikeResponse),
     V2(HikeResponseV2),
 }
 
@@ -15,7 +14,8 @@ pub enum VersionedHike {
 /// version-appropriate response. Generic over both traits so tests inject
 /// fixtures with zero network.
 // @spec API-RESP-001, API-RESP-002, API-RESP-003, API-RESP-004, API-RESP-005,
-// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-011
+// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-011,
+// @spec API-WIRE-010
 pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     store: &S,
     weather_source: &W,
@@ -53,19 +53,9 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     };
 
     let response = match version {
-        ApiVersion::V1 => {
-            let weather = raw.and_then(|raw| build_weather(raw, start, end));
-            VersionedHike::V1(HikeResponse {
-                id: record.id,
-                start: record.start,
-                end: record.end,
-                meeting_point,
-                trails: record.trails,
-                map,
-                weather_available: weather.is_some(),
-                weather,
-            })
-        }
+        // Sunset versions answer 410 before reaching here; one that slips through
+        // on an unreadable clock has no shape to borrow.
+        ApiVersion::V1 => return Err("api version 1 has no response shape".to_string()),
         // ponytail: v3 renders v2's shape until API-WIRE-004 and API-WIRE-009
         // give it its own weather block and nullable map.
         ApiVersion::V2 | ApiVersion::V3 => {
@@ -160,11 +150,10 @@ mod tests {
         }
     }
 
-    /// Unwrap a `VersionedHike` known to be V1 for assertions.
-    fn v1(h: VersionedHike) -> HikeResponse {
+    /// Unwrap a `VersionedHike` known to be V2 for assertions.
+    fn v2(h: VersionedHike) -> HikeResponseV2 {
         match h {
-            VersionedHike::V1(r) => r,
-            VersionedHike::V2(_) => panic!("expected v1 response"),
+            VersionedHike::V2(r) => r,
         }
     }
 
@@ -206,7 +195,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(RawForecast::default()),
         };
-        let result = build_hike_response(&store, &weather, "nope", ApiVersion::V1)
+        let result = build_hike_response(&store, &weather, "nope", ApiVersion::V2)
             .await
             .unwrap();
         assert!(result.is_none());
@@ -221,7 +210,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Err("nws down".to_string()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -232,14 +221,14 @@ mod tests {
 
     // @spec API-RESP-006
     #[tokio::test]
-    async fn v1_populates_weather() {
+    async fn a_forecast_populates_weather() {
         let store = FixtureStore {
             record: Some(sample_record()),
         };
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -258,7 +247,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -276,7 +265,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -298,7 +287,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = v1(build_hike_response(&store, &weather, "x", ApiVersion::V1)
+        let response = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
             .unwrap());
@@ -324,7 +313,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V1).await else {
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V2).await else {
             panic!("expected an unparseable start to fail the request");
         };
         assert!(!err.is_empty());
@@ -355,7 +344,6 @@ mod tests {
                     "expected the record's offset, got {starts_at}"
                 );
             }
-            VersionedHike::V1(_) => panic!("expected v2 response"),
         }
     }
 
@@ -365,7 +353,7 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V1).await;
+        let result = build_hike_response(&FailingStore, &weather, "x", ApiVersion::V2).await;
         let Err(err) = result else {
             panic!("expected storage failure to fail the request");
         };
@@ -391,7 +379,6 @@ mod tests {
                 assert_eq!(w.start_temp_f, 78.0);
                 assert_eq!(w.end_temp_f, 78.0);
             }
-            VersionedHike::V1(_) => panic!("expected v2 response"),
         }
     }
 
@@ -408,6 +395,23 @@ mod tests {
             panic!("expected a missing map to fail a v2 request");
         };
         assert_eq!(err, "map object not found: hikes/blue-ridge/map.png");
+    }
+
+    /// A sunset version answers 410 before assembly; if an unreadable clock lets
+    /// one through anyway, it fails rather than borrowing another version's shape.
+    // @spec API-WIRE-010
+    #[tokio::test]
+    async fn a_sunset_version_has_no_response_shape() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let Err(err) = build_hike_response(&store, &weather, "x", ApiVersion::V1).await else {
+            panic!("expected v1 to have no response shape");
+        };
+        assert_eq!(err, "api version 1 has no response shape");
     }
 
     /// v3 is the current version and is served; its own weather and map
