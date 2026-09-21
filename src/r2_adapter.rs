@@ -7,7 +7,8 @@ pub struct R2HikeStore<'a> {
     pub config: &'a R2Config,
 }
 
-// @spec HIKE-OBJ-001, HIKE-OBJ-003, HIKE-REC-001, HIKE-REC-002, HIKE-REC-003, HIKE-MAP-001, HIKE-MAP-006
+// @spec HIKE-OBJ-001, HIKE-OBJ-003, HIKE-REC-001, HIKE-REC-002, HIKE-REC-003, HIKE-MAP-001, HIKE-MAP-002,
+// @spec HIKE-MAP-006, HIKE-MAP-009
 impl<'a> HikeStore for R2HikeStore<'a> {
     async fn get_hike(&self, id: &str) -> Result<Option<HikeRecord>, String> {
         let key = format!("hikes/{id}.json");
@@ -29,7 +30,20 @@ impl<'a> HikeStore for R2HikeStore<'a> {
         serde_json::from_slice(&bytes).map_err(|e| e.to_string())
     }
 
-    async fn presign_map_url(&self, map_key: &str) -> Result<(String, DateTime<Utc>), String> {
+    async fn presign_map_url(
+        &self,
+        map_key: &str,
+    ) -> Result<Option<(String, DateTime<Utc>)>, String> {
+        // Signing is arithmetic and would sign a key that was never uploaded.
+        if self
+            .bucket
+            .head(map_key)
+            .await
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Ok(None);
+        }
         let now = DateTime::from_timestamp_millis(worker::Date::now().as_millis() as i64)
             .ok_or_else(|| "invalid system time".to_string())?;
         let url = presign_get_url(
@@ -42,7 +56,7 @@ impl<'a> HikeStore for R2HikeStore<'a> {
             self.config.presign_ttl_secs,
         );
         let expires_at = now + chrono::Duration::seconds(self.config.presign_ttl_secs as i64);
-        Ok((url, expires_at))
+        Ok(Some((url, expires_at)))
     }
 }
 
