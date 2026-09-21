@@ -9,7 +9,11 @@ type HmacSha256 = Hmac<Sha256>;
 /// Real impl (`R2HikeStore`) reads the R2 binding; tests use an in-memory fake.
 pub trait HikeStore {
     async fn get_hike(&self, id: &str) -> Result<Option<HikeRecord>, String>;
-    async fn presign_map_url(&self, map_key: &str) -> Result<(String, DateTime<Utc>), String>;
+    /// `Ok(None)` when the object named by `map_key` does not exist.
+    async fn presign_map_url(
+        &self,
+        map_key: &str,
+    ) -> Result<Option<(String, DateTime<Utc>)>, String>;
 }
 
 pub struct R2Config {
