@@ -15,7 +15,7 @@ pub enum VersionedHike {
 /// version-appropriate response. Generic over both traits so tests inject
 /// fixtures with zero network.
 // @spec API-RESP-001, API-RESP-002, API-RESP-003, API-RESP-004, API-RESP-005,
-// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009
+// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-011
 pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     store: &S,
     weather_source: &W,
@@ -26,7 +26,12 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
         return Ok(None);
     };
 
-    let (map_url, expires_at) = store.presign_map_url(&record.map_key).await?;
+    // ponytail: every served shape has a non-null map, so a missing one is a 502
+    // under all of them until API-RESP-010 gives v3 a nullable map.
+    let (map_url, expires_at) = store
+        .presign_map_url(&record.map_key)
+        .await?
+        .ok_or_else(|| format!("map object not found: {}", record.map_key))?;
 
     // Parse preserving the offset (needed for v2's local-calendar-day precip
     // timing); the instants drive window filtering.
@@ -99,11 +104,11 @@ mod tests {
         async fn presign_map_url(
             &self,
             _map_key: &str,
-        ) -> Result<(String, chrono::DateTime<chrono::Utc>), String> {
-            Ok((
+        ) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, String> {
+            Ok(Some((
                 "https://example.com/map.png".to_string(),
                 chrono::Utc::now(),
-            ))
+            )))
         }
     }
 
@@ -118,8 +123,24 @@ mod tests {
         async fn presign_map_url(
             &self,
             _map_key: &str,
-        ) -> Result<(String, chrono::DateTime<chrono::Utc>), String> {
+        ) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, String> {
             Err("r2 unavailable".to_string())
+        }
+    }
+
+    /// A store whose record names a map object that was never uploaded.
+    struct MaplessStore;
+
+    impl HikeStore for MaplessStore {
+        async fn get_hike(&self, _id: &str) -> Result<Option<HikeRecord>, String> {
+            Ok(Some(sample_record()))
+        }
+
+        async fn presign_map_url(
+            &self,
+            _map_key: &str,
+        ) -> Result<Option<(String, chrono::DateTime<chrono::Utc>)>, String> {
+            Ok(None)
         }
     }
 
@@ -372,6 +393,21 @@ mod tests {
             }
             VersionedHike::V1(_) => panic!("expected v2 response"),
         }
+    }
+
+    /// v2's shape has no way to say "no map", so a missing map object fails the
+    /// request rather than returning a map URL that points at nothing.
+    // @spec API-RESP-011, HIKE-MAP-009
+    #[tokio::test]
+    async fn v2_fails_the_request_when_the_map_object_is_missing() {
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let Err(err) = build_hike_response(&MaplessStore, &weather, "x", ApiVersion::V2).await
+        else {
+            panic!("expected a missing map to fail a v2 request");
+        };
+        assert_eq!(err, "map object not found: hikes/blue-ridge/map.png");
     }
 
     /// v3 is the current version and is served; its own weather and map

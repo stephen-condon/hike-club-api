@@ -29,8 +29,8 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 ## Map presigning
 
 - [x] **HIKE-MAP-001**: When a validated hike record is served, the system shall return a presigned URL for the R2 object named by that record's `mapKey`.
-- [ ] **HIKE-MAP-002**: Before returning a presigned map URL, the system shall confirm through an object-metadata read that the object named by `mapKey` exists in the bucket.
-- [ ] **HIKE-MAP-009**: If the object named by a record's `mapKey` does not exist, then the system shall report the map as absent rather than reporting an error, leaving the response version to decide how to express that.
+- [x] **HIKE-MAP-002**: Before returning a presigned map URL, the system shall confirm through an object-metadata read that the object named by `mapKey` exists in the bucket.
+- [x] **HIKE-MAP-009**: If the object named by a record's `mapKey` does not exist, then the system shall report the map as absent rather than reporting an error, leaving the response version to decide how to express that.
 - [x] **HIKE-MAP-003**: The system shall presign map URLs using AWS Signature Version 4 query signing against the R2 S3-compatible endpoint, with region `auto`, service `s3`, `host` as the only signed header, and an unsigned payload.
 - [x] **HIKE-MAP-004**: The system shall address the bucket path-style when presigning, placing the bucket name in the URL path rather than the hostname.
 - [x] **HIKE-MAP-005**: The system shall presign map URLs with a time to live of 3600 seconds.

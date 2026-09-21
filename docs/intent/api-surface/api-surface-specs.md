@@ -49,7 +49,7 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 - [x] **API-RESP-006**: The system shall set `weatherAvailable` to true if and only if the response carries a weather block.
 - [x] **API-RESP-007**: If hike-record retrieval, hike-record validation, or map presigning fails, then the system shall respond 502 with `upstream error: {detail}`.
 - [ ] **API-RESP-010**: If the trail map object cannot be confirmed to exist, then under API version 3 the system shall respond 200 with `mapAvailable: false` and a null `map`.
-- [ ] **API-RESP-011**: If the trail map object cannot be confirmed to exist, then under API version 2 the system shall respond 502, because version 2's response shape cannot express an absent map.
+- [x] **API-RESP-011**: If the trail map object cannot be confirmed to exist, then under API version 2 the system shall respond 502, because version 2's response shape cannot express an absent map.
 - [x] **API-RESP-008**: The system shall pass the UTC offset written in the hike record's `start` to the weather segment, so that precipitation timing and observation caching are both computed on the hike's local calendar day.
 - [x] **API-RESP-009**: The system shall depend on hike storage and on weather only through the `HikeStore` and `WeatherSource` abstractions, so that response assembly is exercised in tests without network access or the Workers runtime.
 
