@@ -339,10 +339,6 @@ pub fn build_weather_v2(
 /// temperatures at both ends of the window — `startConditions` from the first
 /// in-window period, `endConditions` from the last.
 // @spec WX-OUT-005
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "API-WIRE-009 serves it in the v3 response")
-)]
 pub fn build_weather_v3(
     raw: &RawForecast,
     start: DateTime<Utc>,
