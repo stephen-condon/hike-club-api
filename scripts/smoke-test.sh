@@ -39,6 +39,18 @@ check_status() {
   fi
 }
 
+# Asserts the response body matches a pattern, against the last check_status.
+check_body() {
+  local label="$1" pattern="$2"
+  if grep -qE "$pattern" "$body_file"; then
+    echo "  ok   $label"
+  else
+    echo "  FAIL $label: body does not match '$pattern'" >&2
+    sed 's/^/       /' "$body_file" >&2
+    failures=$((failures + 1))
+  fi
+}
+
 # Asserts a response header matches a pattern, against the last check_status.
 check_header() {
   local label="$1" pattern="$2"
@@ -109,6 +121,24 @@ check_status "hike with an unknown version" 400 "/hike/smoke-test" \
 check_status "hike with a non-integer version" 400 "/hike/smoke-test" \
   -H "x-api-key: $api_key" -H "x-api-version: v2"
 
+# @spec API-VER-005 — a version past its sunset is gone, not merely deprecated,
+# on every endpoint that negotiates a version. The body names the version, the
+# date it went, and what to ask for instead.
+check_status "hike under a sunset version" 410 "/hike/smoke-test" \
+  -H "x-api-key: $api_key" -H "x-api-version: 1"
+check_body "410 names the version, its sunset and the live versions" \
+  '^api version 1 was sunset on .+; supported versions: .+$'
+check_status "locations under a sunset version" 410 "/hike-locations" \
+  -H "x-api-key: $api_key" -H "x-api-version: 1"
+
+# @spec API-VER-007 — the 410 carries no Sunset header; the sunset is the body.
+if grep -qiE '^(deprecation|sunset):' "$head_file"; then
+  echo "  FAIL the 410 carries deprecation headers" >&2
+  failures=$((failures + 1))
+else
+  echo "  ok   the 410 carries no deprecation headers"
+fi
+
 # @spec API-RESP-004, HIKE-REC-002 — a hike that does not exist is a 404, not an error.
 check_status "hike that does not exist" 404 "/hike/definitely-not-a-hike" \
   -H "x-api-key: $api_key" -H "x-api-version: 2"
@@ -125,16 +155,32 @@ check_status "locations are served" 200 "/hike-locations" \
   -H "x-api-key: $api_key" -H "x-api-version: 2"
 check_header "locations carry a json content-type" '^content-type:.*application/json'
 
-# @spec API-VER-003 — the locations payload does not vary by version.
-curl -s -H "x-api-key: $api_key" -H "x-api-version: 1" "${base_url}/hike-locations" > "$body_file.v1"
-curl -s -H "x-api-key: $api_key" -H "x-api-version: 2" "${base_url}/hike-locations" > "$body_file.v2"
-if cmp -s "$body_file.v1" "$body_file.v2"; then
-  echo "  ok   locations are identical across versions"
-else
-  echo "  FAIL locations differ between versions" >&2
+# @spec API-VER-003 — the locations payload does not vary by version. Compared
+# across the versions still served, which is what "every supported version"
+# means: a sunset version answers 410 and has no payload to compare. Add each
+# new version here as it is registered.
+live_versions=(2)
+for v in "${live_versions[@]}"; do
+  curl -s -H "x-api-key: $api_key" -H "x-api-version: $v" \
+    "${base_url}/hike-locations" > "$body_file.v$v"
+done
+if ! ls "$body_file".v* >/dev/null 2>&1; then
+  echo "  FAIL no live versions to compare locations across" >&2
   failures=$((failures + 1))
+else
+  first="$body_file.v${live_versions[0]}"
+  identical=1
+  for v in "${live_versions[@]}"; do
+    cmp -s "$first" "$body_file.v$v" || identical=0
+  done
+  if [ "$identical" = 1 ]; then
+    echo "  ok   locations are identical across the served versions"
+  else
+    echo "  FAIL locations differ between served versions" >&2
+    failures=$((failures + 1))
+  fi
 fi
-rm -f "$body_file.v1" "$body_file.v2"
+rm -f "$body_file".v*
 
 # @spec API-RESP-001, API-WIRE-003 — the fixture hike round-trips end to end.
 check_status "fixture hike is served" 200 "/hike/smoke-test" \

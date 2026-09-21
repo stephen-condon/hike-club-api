@@ -24,11 +24,10 @@ paths:
       summary: Get a single hike's details, map, and weather
       description: >
         The weather block is versioned via the required `x-api-version` request
-        header. Version 1 returns `Weather`; version 2 returns `WeatherV2`
-        (start/end temps, precip timing, alerts filtered to the hike window).
-        v1 is deprecated (sunset 2026-08-20) — its responses carry RFC 8594
-        `Deprecation`/`Sunset` headers; use v2. A missing or unsupported version
-        returns 400.
+        header. Version 2 returns `WeatherV2` (start/end temps, precip timing,
+        alerts filtered to the hike window). Version 1 is past its sunset of
+        2026-08-20 and is no longer served: it returns 410 naming the versions
+        still available. A missing or unknown version returns 400.
       parameters:
         - name: id
           in: path
@@ -58,6 +57,8 @@ paths:
           description: Missing or invalid API key
         "404":
           description: No hike with that id
+        "410":
+          description: Requested API version is past its sunset
         "500":
           description: Internal Server Error
         "502":
@@ -80,6 +81,8 @@ paths:
           description: Missing or unsupported API version
         "401":
           description: Missing or invalid API key
+        "410":
+          description: Requested API version is past its sunset
         "500":
           description: Internal Server Error
 components:
@@ -94,8 +97,10 @@ components:
       in: header
       required: true
       description: >
-        API version to serve. `1` → v1 (deprecated, sunset 2026-08-20); `2` → v2.
-        The header is required; a missing or otherwise unsupported value returns 400.
+        API version to serve. `2` → v2. `1` is a known version past its sunset
+        of 2026-08-20 and answers 410; it stays listed so a stale client is told
+        its version is finished rather than that it never existed.
+        The header is required; a missing or unknown value returns 400.
       schema:
         type: string
         enum: ["1", "2"]
