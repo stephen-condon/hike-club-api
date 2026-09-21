@@ -33,7 +33,8 @@ pub async fn build_locations_response<S: HikeStore>(store: &S) -> (u16, String) 
 /// version-appropriate response. Generic over both traits so tests inject
 /// fixtures with zero network.
 // @spec API-RESP-001, API-RESP-002, API-RESP-003, API-RESP-004, API-RESP-005,
-// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-011,
+// @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-010,
+// @spec API-RESP-011,
 // @spec API-WIRE-004, API-WIRE-009, API-WIRE-010
 pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     store: &S,
@@ -45,12 +46,15 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
         return Ok(None);
     };
 
-    // ponytail: a missing map is a 502 under every version until API-RESP-010
-    // lets v3 serve it as absent.
-    let (map_url, expires_at) = store
+    // An absent map object is not a failure here; each version decides below
+    // whether its shape can say so.
+    let map = store
         .presign_map_url(&record.map_key)
         .await?
-        .ok_or_else(|| format!("map object not found: {}", record.map_key))?;
+        .map(|(url, expires_at)| MapRef {
+            url,
+            expires_at: expires_at.to_rfc3339(),
+        });
 
     // Parse preserving the offset (needed for v2's local-calendar-day precip
     // timing); the instants drive window filtering.
@@ -66,16 +70,14 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     let raw = forecast.as_ref().ok();
 
     let meeting_point = MeetingPoint::new(record.meeting.lat, record.meeting.lon);
-    let map = MapRef {
-        url: map_url,
-        expires_at: expires_at.to_rfc3339(),
-    };
 
     let response = match version {
         // Sunset versions answer 410 before reaching here; one that slips through
         // on an unreadable clock has no shape to borrow.
         ApiVersion::V1 => return Err("api version 1 has no response shape".to_string()),
         ApiVersion::V2 => {
+            // v2's shape cannot express an absent map, so it fails the request.
+            let map = map.ok_or_else(|| format!("map object not found: {}", record.map_key))?;
             let weather = raw.and_then(|raw| build_weather_v2(raw, start, end, offset));
             VersionedHike::V2(HikeResponseV2 {
                 id: record.id,
@@ -96,8 +98,8 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
                 end: record.end,
                 meeting_point,
                 trails: record.trails,
-                map: Some(map),
-                map_available: true,
+                map_available: map.is_some(),
+                map,
                 weather_available: weather.is_some(),
                 weather,
             })
@@ -508,6 +510,27 @@ mod tests {
             panic!("expected a missing map to fail a v2 request");
         };
         assert_eq!(err, "map object not found: hikes/blue-ridge/map.png");
+    }
+
+    /// A hike whose map image never uploaded still gets the pack to the
+    /// trailhead under v3: the map is absent and flagged, and nothing else is.
+    // @spec API-RESP-010, HIKE-MAP-009
+    #[tokio::test]
+    async fn v3_serves_a_missing_map_as_absent() {
+        let weather = FixtureWeather {
+            result: Ok(sample_forecast()),
+        };
+        let response = build_hike_response(&MaplessStore, &weather, "x", ApiVersion::V3)
+            .await
+            .unwrap()
+            .unwrap();
+        let VersionedHike::V3(r) = response else {
+            panic!("expected the v3 shape");
+        };
+        assert!(r.map.is_none());
+        assert!(!r.map_available);
+        assert_eq!(r.meeting_point.lat, 37.6);
+        assert!(r.weather_available);
     }
 
     /// A sunset version answers 410 before assembly; if an unreadable clock lets
