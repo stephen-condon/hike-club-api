@@ -1,13 +1,14 @@
-use crate::models::{HikeResponseV2, MapRef, MeetingPoint};
+use crate::models::{HikeResponseV2, HikeResponseV3, MapRef, MeetingPoint};
 use crate::r2::HikeStore;
 use crate::version::ApiVersion;
-use crate::weather::{WeatherSource, build_weather_v2};
+use crate::weather::{WeatherSource, build_weather_v2, build_weather_v3};
 use chrono::DateTime;
 
 /// A hike response in the shape for the requested API version. `lib.rs` matches
 /// on this and serializes the appropriate variant.
 pub enum VersionedHike {
     V2(HikeResponseV2),
+    V3(HikeResponseV3),
 }
 
 /// `GET /hike-locations` past admission, as status and body. The list comes
@@ -33,7 +34,7 @@ pub async fn build_locations_response<S: HikeStore>(store: &S) -> (u16, String) 
 /// fixtures with zero network.
 // @spec API-RESP-001, API-RESP-002, API-RESP-003, API-RESP-004, API-RESP-005,
 // @spec API-RESP-006, API-RESP-007, API-RESP-008, API-RESP-009, API-RESP-011,
-// @spec API-WIRE-010
+// @spec API-WIRE-004, API-WIRE-009, API-WIRE-010
 pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
     store: &S,
     weather_source: &W,
@@ -44,8 +45,8 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
         return Ok(None);
     };
 
-    // ponytail: every served shape has a non-null map, so a missing one is a 502
-    // under all of them until API-RESP-010 gives v3 a nullable map.
+    // ponytail: a missing map is a 502 under every version until API-RESP-010
+    // lets v3 serve it as absent.
     let (map_url, expires_at) = store
         .presign_map_url(&record.map_key)
         .await?
@@ -74,9 +75,7 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
         // Sunset versions answer 410 before reaching here; one that slips through
         // on an unreadable clock has no shape to borrow.
         ApiVersion::V1 => return Err("api version 1 has no response shape".to_string()),
-        // ponytail: v3 renders v2's shape until API-WIRE-004 and API-WIRE-009
-        // give it its own weather block and nullable map.
-        ApiVersion::V2 | ApiVersion::V3 => {
+        ApiVersion::V2 => {
             let weather = raw.and_then(|raw| build_weather_v2(raw, start, end, offset));
             VersionedHike::V2(HikeResponseV2 {
                 id: record.id,
@@ -85,6 +84,20 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
                 meeting_point,
                 trails: record.trails,
                 map,
+                weather_available: weather.is_some(),
+                weather,
+            })
+        }
+        ApiVersion::V3 => {
+            let weather = raw.and_then(|raw| build_weather_v3(raw, start, end, offset));
+            VersionedHike::V3(HikeResponseV3 {
+                id: record.id,
+                start: record.start,
+                end: record.end,
+                meeting_point,
+                trails: record.trails,
+                map: Some(map),
+                map_available: true,
                 weather_available: weather.is_some(),
                 weather,
             })
@@ -261,6 +274,7 @@ mod tests {
     fn v2(h: VersionedHike) -> HikeResponseV2 {
         match h {
             VersionedHike::V2(r) => r,
+            VersionedHike::V3(_) => panic!("expected the v2 shape"),
         }
     }
 
@@ -439,19 +453,15 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(forecast),
         };
-        let response = build_hike_response(&store, &weather, "x", ApiVersion::V2)
+        let r = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
-            .unwrap();
-        match response {
-            VersionedHike::V2(r) => {
-                let starts_at = r.weather.unwrap().precipitation.starts_at.unwrap();
-                assert!(
-                    starts_at.ends_with("-04:00"),
-                    "expected the record's offset, got {starts_at}"
-                );
-            }
-        }
+            .unwrap());
+        let starts_at = r.weather.unwrap().precipitation.starts_at.unwrap();
+        assert!(
+            starts_at.ends_with("-04:00"),
+            "expected the record's offset, got {starts_at}"
+        );
     }
 
     // @spec API-RESP-007
@@ -476,17 +486,13 @@ mod tests {
         let weather = FixtureWeather {
             result: Ok(sample_forecast()),
         };
-        let response = build_hike_response(&store, &weather, "x", ApiVersion::V2)
+        let r = v2(build_hike_response(&store, &weather, "x", ApiVersion::V2)
             .await
             .unwrap()
-            .unwrap();
-        match response {
-            VersionedHike::V2(r) => {
-                let w = r.weather.unwrap();
-                assert_eq!(w.start_temp_f, 78.0);
-                assert_eq!(w.end_temp_f, 78.0);
-            }
-        }
+            .unwrap());
+        let w = r.weather.unwrap();
+        assert_eq!(w.start_temp_f, 78.0);
+        assert_eq!(w.end_temp_f, 78.0);
     }
 
     /// v2's shape has no way to say "no map", so a missing map object fails the
@@ -521,11 +527,11 @@ mod tests {
         assert_eq!(err, "api version 1 has no response shape");
     }
 
-    /// v3 is the current version and is served; its own weather and map
-    /// shapes are API-WIRE-004 and API-WIRE-009.
-    // @spec API-VER-008
+    /// v3, the current version, is served in its own shape: a map beside
+    /// `mapAvailable`, and conditions at both ends of the window.
+    // @spec API-VER-008, API-WIRE-009, API-WIRE-004
     #[tokio::test]
-    async fn v3_is_served() {
+    async fn v3_is_served_in_its_own_shape() {
         let store = FixtureStore {
             record: Some(sample_record()),
         };
@@ -534,7 +540,16 @@ mod tests {
         };
         let response = build_hike_response(&store, &weather, "x", ApiVersion::V3)
             .await
+            .unwrap()
             .unwrap();
-        assert!(response.is_some());
+        let VersionedHike::V3(r) = response else {
+            panic!("expected v3 to be served in the v3 shape");
+        };
+        assert!(r.map_available);
+        assert_eq!(r.map.unwrap().url, "https://example.com/map.png");
+        assert!(r.weather_available);
+        let w = r.weather.unwrap();
+        assert_eq!(w.start_conditions, "Partly Cloudy");
+        assert_eq!(w.end_conditions, "Partly Cloudy");
     }
 }

@@ -202,6 +202,7 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
 
     match build_hike_response(&store, &weather_source, id, version).await {
         Ok(Some(VersionedHike::V2(r))) => with_deprecation(Response::from_json(&r)?, version),
+        Ok(Some(VersionedHike::V3(r))) => with_deprecation(Response::from_json(&r)?, version),
         Ok(None) => Response::error("hike not found", 404),
         Err(e) => Response::error(format!("upstream error: {e}"), 502),
     }

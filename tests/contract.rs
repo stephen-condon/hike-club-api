@@ -4,8 +4,8 @@
 //! full-runtime contract exercise is left to the post-deploy smoke test instead.
 
 use hike_club_api::models::{
-    Alert, HikeLocation, HikeResponseV2, MapRef, MeetingPoint, PrecipitationV2, WeatherV2,
-    WeatherV3,
+    Alert, HikeLocation, HikeResponseV2, HikeResponseV3, MapRef, MeetingPoint, PrecipitationV2,
+    WeatherV2, WeatherV3,
 };
 
 const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
@@ -253,4 +253,52 @@ fn v3_weather_block_matches_spec() {
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
     assert!(instance.get("conditions").is_none());
+}
+
+fn sample_response_v3(weather: Option<WeatherV3>) -> HikeResponseV3 {
+    let v2 = sample_response_v2(None);
+    HikeResponseV3 {
+        id: v2.id,
+        start: v2.start,
+        end: v2.end,
+        meeting_point: v2.meeting_point,
+        trails: v2.trails,
+        map: Some(v2.map),
+        map_available: true,
+        weather_available: weather.is_some(),
+        weather,
+    }
+}
+
+fn sample_weather_v3() -> WeatherV3 {
+    let v2 = sample_weather_v2();
+    WeatherV3 {
+        start_temp_f: v2.start_temp_f,
+        end_temp_f: v2.end_temp_f,
+        start_conditions: "Sunny".to_string(),
+        end_conditions: "Thunderstorms".to_string(),
+        precipitation: v2.precipitation,
+        heat_index_f: v2.heat_index_f,
+        wind_chill_f: v2.wind_chill_f,
+        alerts: v2.alerts,
+    }
+}
+
+// @spec API-WIRE-001, API-WIRE-009, API-WIRE-007
+#[test]
+fn v3_response_with_weather_matches_spec() {
+    let validator = validator_for("HikeResponseV3");
+    let instance = serde_json::to_value(sample_response_v3(Some(sample_weather_v3()))).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+    assert_eq!(instance["mapAvailable"], true);
+}
+
+// @spec API-RESP-005, API-WIRE-007
+#[test]
+fn v3_response_without_weather_matches_spec() {
+    let validator = validator_for("HikeResponseV3");
+    let instance = serde_json::to_value(sample_response_v3(None)).unwrap();
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
 }

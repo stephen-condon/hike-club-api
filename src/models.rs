@@ -130,3 +130,23 @@ pub struct HikeResponseV2 {
     pub weather_available: bool,
     pub weather: Option<WeatherV2>,
 }
+
+/// The full GET /hike/{id} response under `x-api-version: 3`. `map` is
+/// nullable beside `mapAvailable`, the way `weather` degrades beside
+/// `weatherAvailable`.
+// @spec API-WIRE-009
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HikeResponseV3 {
+    pub id: String,
+    pub start: String,
+    pub end: String,
+    #[serde(rename = "meetingPoint")]
+    pub meeting_point: MeetingPoint,
+    pub trails: Vec<String>,
+    pub map: Option<MapRef>,
+    #[serde(rename = "mapAvailable")]
+    pub map_available: bool,
+    #[serde(rename = "weatherAvailable")]
+    pub weather_available: bool,
+    pub weather: Option<WeatherV3>,
+}
