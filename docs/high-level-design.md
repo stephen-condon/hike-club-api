@@ -10,7 +10,7 @@ This API is that something: one authenticated request returns a complete, curren
 
 A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond the `worker` crate's router.
 
-**R2 is the source of truth.** This worker only ever reads it; the sibling `hike-club-admin` worker, behind Cloudflare Access, is the bucket's only writer. The admin validates every record and map before it lands, so its writes are exactly the bytes this worker deserializes. Hike metadata is one JSON object per location in the bucket; the trail map is a PNG beside it. A location's record is rewritten in place when that location is next scheduled, so the bucket holds one record per location rather than a growing history. Because the id carries no date, `start`/`end` in the R2 record are the only statement of when a hike happens.
+**R2 is the source of truth.** This worker only ever reads it; the sibling `hike-club-admin` worker, behind Cloudflare Access, is the bucket's only writer. The admin validates every record and map before it lands, so its writes are exactly the bytes this worker deserializes. Hike metadata is one JSON object per location in the bucket; the trail map is a PNG beside it. The list of locations the app offers in its picker is a bucket object too, `resources/hike-locations.json`, so adding a preserve is an admin edit rather than a deploy. A location's record is rewritten in place when that location is next scheduled, so the bucket holds one record per location rather than a growing history. Because the id carries no date, `start`/`end` in the R2 record are the only statement of when a hike happens.
 
 **Weather is derived, not proxied.** The worker fetches from the National Weather Service, then does the interpretation: filtering periods to the hike window, computing heat index and wind chill, and raising the threshold alerts. The app receives conclusions.
 
@@ -23,7 +23,7 @@ A single Rust Cloudflare Worker, deployed at the edge, with no framework beyond 
 ## Target Users
 
 - **The pack's iOS app** — the only client. Sends a shared API key and a version header, renders one hike screen. It cannot retry intelligently or interpret raw forecast data, so the API owes it complete, already-decided answers.
-- **The hike organizer** — schedules hikes and uploads trail maps through `hike-club-admin`, and maintains `resources/hike-location-mapping.json`. Reaches this API only through the app.
+- **The hike organizer** — schedules hikes and uploads trail maps through `hike-club-admin`, and maintains the location list. Reaches this API only through the app.
 - **Families on hike morning** — indirect users, on phones, in a parking lot, possibly with no signal by the time they arrive. Freshness matters less than the screen being complete when it loads.
 
 ## Goals
@@ -80,7 +80,7 @@ Three arrow segments divide the worker:
 | Segment | Prefix | Owns |
 |---|---|---|
 | `api-surface` | `API` | Routing, API-key enforcement, version negotiation and the version registry, request orchestration, the versioned wire contract and its OpenAPI conformance, error-to-status mapping, `/hike-locations`, `/health`. |
-| `hike-record` | `HIKE` | The R2 object layout, hike-record retrieval, parsing and validation, SigV4 presigned map URLs and their TTL. |
+| `hike-record` | `HIKE` | The R2 object layout, hike-record and location-list retrieval, parsing and validation, SigV4 presigned map URLs and their TTL. |
 | `weather` | `WX` | Choosing forecast versus observations, NWS fetching and caching, response parsing, derived heat index / wind chill / precipitation alerts, and the versioned weather blocks. |
 
 The boundaries follow the trait seams: `api-surface` depends on `hike-record` and `weather` only through `HikeStore` and `WeatherSource`, so a segment's internals can change without touching its siblings.
@@ -88,6 +88,8 @@ The boundaries follow the trait seams: `api-surface` depends on `hike-record` an
 ## Key Design Decisions
 
 **Rust on Workers rather than a Node or Python worker.** Wasm keeps cold starts and CPU time inside the free tier's limits, and the type system makes the per-version response split a compile-time concern. The cost is a build toolchain (`worker-build`, a `reference-types` RUSTFLAG) and a runtime that cannot be exercised outside a deployed worker — which is why the coverage gate excludes the glue files rather than chasing them with integration tests.
+
+**The location list lives only in R2.** `GET /hike-locations` reads `resources/hike-locations.json` on every request and serves it; a missing or unreadable object is a `502`. Keeping a copy in the binary as a fallback was rejected: once the bucket holds the list, the copy could only ever be served during an R2 fault, and by then it would be out of date. An old list is worse than an error here, because the app replaces its cached list with any list it receives but keeps that cache when a refresh fails. The request is uncached; the app refreshes weekly, so the R2 reads it costs are negligible.
 
 **R2 objects instead of a database.** One organizer schedules roughly one hike a month; the access pattern is a single key lookup. D1 or KV would add a schema and a migration story to buy nothing. R2 also holds the map images, so metadata and map live together.
 
@@ -120,7 +122,6 @@ The boundaries follow the trait seams: `api-surface` depends on `hike-record` an
 ## References
 
 - `openapi.yaml` — the published response contract for every served version.
-- `resources/hike-location-mapping.json` — location slug to display name, embedded at compile time and served verbatim by `GET /hike-locations`.
 - `hike-club-admin` (sibling repo) — the only writer to the R2 bucket; its `openapi.yaml` `HikeRecord` schema defines the stored record bytes.
 - `docs/system-design.md` in the parent `cubscouts` workspace repo — the contracts between this API, the admin, and the iOS app, and the order to change them in.
 - [NWS API](https://www.weather.gov/documentation/services-web-api) — `/points`, `/gridpoints/.../forecast/hourly`, `/stations/.../observations`, `/alerts/active`.
