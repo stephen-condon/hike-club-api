@@ -183,3 +183,50 @@ fn spec_documents_location_list_failures_and_slug_field() {
         "the slug's wire field is short_name"
     );
 }
+
+/// The published document describes the v3 shape — a nullable map beside
+/// `mapAvailable`, and conditions at both ends of the window — and no longer
+/// carries any schema for the sunset v1.
+// @spec API-WIRE-008
+#[test]
+fn openapi_publishes_v3_and_drops_v1() {
+    let openapi: serde_yaml::Value = serde_yaml::from_str(OPENAPI_YAML).unwrap();
+    let schemas = &openapi["components"]["schemas"];
+    for v1 in ["HikeResponse", "Weather", "Precipitation"] {
+        assert!(schemas.get(v1).is_none(), "v1 schema {v1} still published");
+    }
+
+    let validator = validator_for("HikeResponseV3");
+    let instance = serde_json::json!({
+        "id": "blue-ridge",
+        "start": "2026-07-18T08:00:00-04:00",
+        "end": "2026-07-18T12:00:00-04:00",
+        "meetingPoint": { "lat": 37.6, "lon": -79.2, "googleMapsUrl": "https://maps.google.com/?q=37.6,-79.2" },
+        "trails": ["Blue Ridge Loop"],
+        "map": null,
+        "mapAvailable": false,
+        "weatherAvailable": true,
+        "weather": {
+            "startTempF": 62.0,
+            "endTempF": 81.0,
+            "startConditions": "Sunny",
+            "endConditions": "Thunderstorms",
+            "precipitation": { "probabilityPct": 60, "expected": true, "startsAt": null, "endsAt": null },
+            "heatIndexF": null,
+            "windChillF": null,
+            "alerts": []
+        }
+    });
+    let errors: Vec<_> = validator.iter_errors(&instance).collect();
+    assert!(errors.is_empty(), "schema violations: {errors:?}");
+
+    let mut with_v2_conditions = instance.clone();
+    with_v2_conditions["weather"]
+        .as_object_mut()
+        .unwrap()
+        .remove("endConditions");
+    assert!(
+        !validator.is_valid(&with_v2_conditions),
+        "endConditions must be required"
+    );
+}
