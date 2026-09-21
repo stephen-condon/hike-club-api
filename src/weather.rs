@@ -1,4 +1,4 @@
-use crate::models::{Alert, Precipitation, PrecipitationV2, Weather, WeatherV2};
+use crate::models::{Alert, PrecipitationV2, WeatherV2};
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -229,7 +229,7 @@ pub(crate) fn parse_observations(obs: &serde_json::Value) -> Vec<RawPeriod> {
     periods
 }
 
-/// precip probability above which we call it "predicted" for the v1 alert rule.
+/// precip probability above which we call it "predicted" for the precip alert.
 /// ponytail: any nonzero threshold is a judgment call; tune here if it's noisy.
 const PRECIP_ALERT_THRESHOLD_PCT: u8 = 1;
 /// v2 precip-*timing* threshold: only hours this likely count as "rain expected".
@@ -288,47 +288,6 @@ fn wind_chill_alert(wind_chill_f: Option<f64>) -> Option<Alert> {
                 "Wind chill of {wc:.0}\u{b0}F is below {WIND_CHILL_ALERT_F:.0}\u{b0}F"
             ),
         })
-}
-
-/// Builds the **v1** `Weather` block for the hike window. Behavior preserved from
-/// the original: single temp (first period), passes through *all* active NWS
-/// alerts. Now filters the full forecast to the window itself.
-pub fn build_weather(
-    raw: &RawForecast,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> Option<Weather> {
-    let periods = periods_in_window(&raw.periods, start, end);
-    let representative = *periods.first()?;
-
-    let max_prob = max_precip_prob(&periods);
-    let heat_index_f = max_heat_index(&periods);
-    let wind_chill_f = min_wind_chill(&periods);
-
-    let mut alerts = Vec::new();
-    alerts.extend(precip_alert(max_prob));
-    // v1 passes through every active NWS alert unchanged (no time filtering).
-    alerts.extend(raw.alerts.iter().map(|a| Alert {
-        kind: "nws_alert".to_string(),
-        message: a.event.clone(),
-    }));
-    alerts.extend(heat_alert(heat_index_f));
-    alerts.extend(wind_chill_alert(wind_chill_f));
-
-    Some(Weather {
-        temperature_f: representative.temp_f,
-        conditions: representative.short_forecast.clone(),
-        precipitation: Precipitation {
-            probability_pct: max_prob,
-            // ponytail: NWS hourly forecast doesn't expose quantitative precip
-            // amount, only probability. Upgrade: pull QPF from the /gridpoint
-            // endpoint if an amount estimate becomes worth the extra fetch.
-            amount_in: 0.0,
-        },
-        heat_index_f,
-        wind_chill_f,
-        alerts,
-    })
 }
 
 /// Builds the **v2** `WeatherV2` block: start/end temps, precip timing across the

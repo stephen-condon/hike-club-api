@@ -63,4 +63,4 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 - [x] **API-WIRE-006**: The system shall render error response bodies as plain text rather than JSON.
 - [x] **API-WIRE-007**: The system shall validate the serialized response of every API version it serves against the schema published in `openapi.yaml` as part of its test suite, without a deployed worker.
 - [ ] **API-WIRE-008**: The system shall publish the API version 3 response schema in `openapi.yaml` and remove the API version 1 schema.
-- [ ] **API-WIRE-010**: The system shall carry no response types, builders, or contract tests for an API version past its sunset.
+- [x] **API-WIRE-010**: The system shall carry no response types, builders, or contract tests for an API version past its sunset.
