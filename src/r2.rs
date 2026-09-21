@@ -28,6 +28,14 @@ pub fn parse_locations(bytes: &[u8]) -> Result<Vec<HikeLocation>, String> {
     serde_json::from_slice(bytes).map_err(|e| e.to_string())
 }
 
+/// Parses a stored hike record, so a value that reaches the caller has
+/// already had its timestamps checked and parsed — nothing downstream
+/// re-parses `start`/`end` or holds an unchecked record.
+// @spec HIKE-REC-006, HIKE-REC-008, HIKE-REC-009
+pub fn parse_hike_record(bytes: &[u8]) -> Result<HikeRecord, String> {
+    serde_json::from_slice(bytes).map_err(|e| e.to_string())
+}
+
 pub struct R2Config {
     pub account_id: String,
     pub bucket: String,
@@ -171,6 +179,58 @@ mod tests {
         let record: HikeRecord = serde_json::from_str(json).unwrap();
         assert_eq!(record.id, "blue-ridge");
         assert_eq!(record.trails, vec!["Blue Ridge Loop".to_string()]);
+    }
+
+    /// A record still carrying the upload template's placeholder dates must
+    /// fail loudly rather than surfacing as a hike with mysteriously no
+    /// weather.
+    // @spec HIKE-REC-006
+    #[test]
+    fn parse_hike_record_rejects_an_unparseable_start() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "TODO",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        assert!(parse_hike_record(json).is_err());
+    }
+
+    /// `end`/`start` must carry a UTC offset, not just a local time.
+    // @spec HIKE-REC-006
+    #[test]
+    fn parse_hike_record_rejects_a_timestamp_with_no_offset() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "2026-07-18T08:00:00",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        assert!(parse_hike_record(json).is_err());
+    }
+
+    /// A record that parses arrives with its timestamps already parsed, not
+    /// as strings a caller would have to parse again — and with the offset
+    /// it was written with, not normalised to UTC.
+    // @spec HIKE-REC-008, HIKE-REC-009
+    #[test]
+    fn parse_hike_record_returns_already_parsed_offset_preserving_timestamps() {
+        let json = br#"{
+            "id": "blue-ridge",
+            "start": "2026-07-18T08:00:00-04:00",
+            "end": "2026-07-18T12:00:00-04:00",
+            "meeting": { "lat": 37.6, "lon": -79.2 },
+            "trails": ["Blue Ridge Loop"],
+            "mapKey": "hikes/blue-ridge/map.png"
+        }"#;
+        let record = parse_hike_record(json).unwrap();
+        // Typed as `DateTime<FixedOffset>` already — no further parsing needed.
+        assert_eq!(record.start.to_rfc3339(), "2026-07-18T08:00:00-04:00");
+        assert_eq!(record.end.to_rfc3339(), "2026-07-18T12:00:00-04:00");
     }
 
     // @spec HIKE-LOC-004

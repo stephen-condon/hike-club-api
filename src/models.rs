@@ -1,3 +1,4 @@
+use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -99,11 +100,15 @@ pub struct WeatherV3 {
 /// location slug (a `short_name` from the location list) with no
 /// date component — one record per location, rewritten in place when that location
 /// is next scheduled. `start`/`end` are the only source of the hike's date.
+///
+/// `start`/`end` are parsed and validated by `r2::parse_hike_record` before a
+/// value of this type exists, so holding one means both already checked out:
+/// each parses as RFC 3339 with an offset, and `end` is strictly after `start`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeRecord {
     pub id: String,
-    pub start: String,
-    pub end: String,
+    pub start: DateTime<FixedOffset>,
+    pub end: DateTime<FixedOffset>,
     pub meeting: MeetingCoords,
     pub trails: Vec<String>,
     #[serde(rename = "mapKey")]

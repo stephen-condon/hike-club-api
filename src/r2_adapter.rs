@@ -1,5 +1,7 @@
 use crate::models::{HikeLocation, HikeRecord};
-use crate::r2::{HikeStore, LOCATIONS_KEY, R2Config, parse_locations, presign_get_url};
+use crate::r2::{
+    HikeStore, LOCATIONS_KEY, R2Config, parse_hike_record, parse_locations, presign_get_url,
+};
 use chrono::{DateTime, Utc};
 
 pub struct R2HikeStore<'a> {
@@ -36,7 +38,7 @@ impl<'a> HikeStore for R2HikeStore<'a> {
         let Some(bytes) = self.read(&format!("hikes/{id}.json")).await? else {
             return Ok(None);
         };
-        serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+        parse_hike_record(&bytes).map(Some)
     }
 
     // @spec HIKE-LOC-001, HIKE-LOC-002
