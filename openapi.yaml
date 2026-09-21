@@ -24,8 +24,12 @@ paths:
       summary: Get a single hike's details, map, and weather
       description: >
         The weather block is versioned via the required `x-api-version` request
-        header. Versions 2 and 3 return `WeatherV2` (start/end temps, precip
-        timing, alerts filtered to the hike window). Version 2 is deprecated
+        header. Version 3 returns `HikeResponseV3`: conditions at both ends of
+        the hike window (`startConditions`/`endConditions`) and a nullable `map`
+        with `mapAvailable`, so a hike whose map image is missing is still
+        served. Version 2 returns `HikeResponseV2`, whose single `conditions`
+        and non-null `map` are frozen; a missing map image is a 502 under
+        version 2. Version 2 is deprecated
         with a sunset of 2026-11-18 and carries `Deprecation`, `Sunset` and
         `Link` headers. Version 1 is past its sunset of
         2026-08-20 and is no longer served: it returns 410 naming the versions
@@ -51,8 +55,8 @@ paths:
             application/json:
               schema:
                 oneOf:
-                  - $ref: "#/components/schemas/HikeResponse"
                   - $ref: "#/components/schemas/HikeResponseV2"
+                  - $ref: "#/components/schemas/HikeResponseV3"
         "400":
           description: Missing or unsupported API version
         "401":
@@ -137,18 +141,6 @@ components:
         expiresAt:
           type: string
           format: date-time
-    Precipitation:
-      type: object
-      deprecated: true
-      required: [probabilityPct, amountIn]
-      properties:
-        probabilityPct:
-          type: integer
-          minimum: 0
-          maximum: 100
-        amountIn:
-          type: number
-          minimum: 0
     Alert:
       type: object
       required: [type, message]
@@ -158,27 +150,6 @@ components:
           enum: [precip, nws_alert, heat_index, wind_chill]
         message:
           type: string
-    Weather:
-      type: object
-      deprecated: true
-      required: [temperatureF, conditions, precipitation, alerts]
-      properties:
-        temperatureF:
-          type: number
-        conditions:
-          type: string
-        precipitation:
-          $ref: "#/components/schemas/Precipitation"
-        heatIndexF:
-          type: number
-          nullable: true
-        windChillF:
-          type: number
-          nullable: true
-        alerts:
-          type: array
-          items:
-            $ref: "#/components/schemas/Alert"
     PrecipitationV2:
       type: object
       required: [probabilityPct, expected]
@@ -223,33 +194,6 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Alert"
-    HikeResponse:
-      type: object
-      deprecated: true
-      required: [id, start, end, meetingPoint, trails, map, weatherAvailable, weather]
-      properties:
-        id:
-          type: string
-        start:
-          type: string
-          format: date-time
-        end:
-          type: string
-          format: date-time
-        meetingPoint:
-          $ref: "#/components/schemas/MeetingPoint"
-        trails:
-          type: array
-          items:
-            type: string
-        map:
-          $ref: "#/components/schemas/MapRef"
-        weatherAvailable:
-          type: boolean
-        weather:
-          nullable: true
-          allOf:
-            - $ref: "#/components/schemas/Weather"
     HikeResponseV2:
       type: object
       required: [id, start, end, meetingPoint, trails, map, weatherAvailable, weather]
@@ -276,3 +220,60 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/WeatherV2"
+    WeatherV3:
+      type: object
+      required: [startTempF, endTempF, startConditions, endConditions, precipitation, alerts]
+      properties:
+        startTempF:
+          type: number
+        endTempF:
+          type: number
+        startConditions:
+          type: string
+          description: Condition phrase of the first in-window period.
+        endConditions:
+          type: string
+          description: Condition phrase of the last in-window period.
+        precipitation:
+          $ref: "#/components/schemas/PrecipitationV2"
+        heatIndexF:
+          type: number
+          nullable: true
+        windChillF:
+          type: number
+          nullable: true
+        alerts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Alert"
+    HikeResponseV3:
+      type: object
+      required: [id, start, end, meetingPoint, trails, map, mapAvailable, weatherAvailable, weather]
+      properties:
+        id:
+          type: string
+        start:
+          type: string
+          format: date-time
+        end:
+          type: string
+          format: date-time
+        meetingPoint:
+          $ref: "#/components/schemas/MeetingPoint"
+        trails:
+          type: array
+          items:
+            type: string
+        map:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/MapRef"
+        mapAvailable:
+          type: boolean
+          description: Whether `map` is present; false when the map image could not be confirmed to exist.
+        weatherAvailable:
+          type: boolean
+        weather:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/WeatherV3"
