@@ -1,7 +1,7 @@
 use crate::weather::{
-    RawForecast, WeatherSource, first_station_url, forecast_cache_key, forecast_hourly_url,
-    nws_query_time, observation_cache_key, observation_stations_url, parse_active_alerts,
-    parse_observations, parse_periods,
+    RawForecast, WeatherSource, forecast_cache_key, forecast_hourly_url, nws_query_time,
+    observation_cache_key, observation_stations_url, parse_active_alerts, parse_observations,
+    parse_periods, station_urls,
 };
 use chrono::{DateTime, FixedOffset, Utc};
 
@@ -96,10 +96,13 @@ async fn cached(
     Ok(raw)
 }
 
-/// Fetches actual observed weather for a completed hike from the nearest NWS
-/// station. ponytail: no historical NWS watch/warning alerts here — active alerts
+/// Fetches actual observed weather for a completed hike, trying up to three
+/// nearest NWS stations in proximity order and stopping at the first that
+/// yields readings for the window (WX-SRC-008) — a listed station is not
+/// necessarily a reporting one. Exhausting all three returns an empty result.
+/// ponytail: no historical NWS watch/warning alerts here — active alerts
 /// are a *now* concept; add a `/alerts?start=&end=` fetch if past alerts matter.
-// @spec WX-SRC-004, WX-SRC-007, WX-SRC-009, WX-ALERT-012
+// @spec WX-SRC-004, WX-SRC-007, WX-SRC-008, WX-SRC-009, WX-ALERT-012
 async fn fetch_nws_observations(
     lat: f64,
     lon: f64,
@@ -111,17 +114,25 @@ async fn fetch_nws_observations(
     let stations_url = observation_stations_url(&points)?;
 
     let stations: serde_json::Value = get_json(&stations_url).await?;
-    let station_url = first_station_url(&stations)?;
 
-    let obs_url = format!(
-        "{station_url}/observations?start={}&end={}",
-        nws_query_time(start),
-        nws_query_time(end)
-    );
-    let obs: serde_json::Value = get_json(&obs_url).await?;
+    for station_url in station_urls(&stations)? {
+        let obs_url = format!(
+            "{station_url}/observations?start={}&end={}",
+            nws_query_time(start),
+            nws_query_time(end)
+        );
+        let obs: serde_json::Value = get_json(&obs_url).await?;
+        let periods = parse_observations(&obs);
+        if !periods.is_empty() {
+            return Ok(RawForecast {
+                periods,
+                alerts: vec![],
+            });
+        }
+    }
 
     Ok(RawForecast {
-        periods: parse_observations(&obs),
+        periods: vec![],
         alerts: vec![],
     })
 }

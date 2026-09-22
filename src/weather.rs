@@ -153,14 +153,25 @@ pub(crate) fn observation_stations_url(points: &serde_json::Value) -> Result<Str
         .ok_or_else(|| "NWS points response missing observationStations".to_string())
 }
 
-/// Pure parsing of an NWS observation-stations response -> the nearest station's
-/// URL. Stations come proximity-ordered, so `features[0].id` is closest.
-// @spec WX-SRC-007
-pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, String> {
-    stations["features"][0]["id"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| "NWS observation-stations response has no stations".to_string())
+/// Pure parsing of an NWS observation-stations response -> up to the three
+/// nearest stations' URLs, in the proximity order NWS returns them. A listed
+/// station is not necessarily a reporting one, so callers try each in turn
+/// until one yields readings; the cap bounds the latency a fully dead
+/// neighbourhood of stations can cost.
+// @spec WX-SRC-007, WX-SRC-008
+pub(crate) fn station_urls(stations: &serde_json::Value) -> Result<Vec<String>, String> {
+    let urls: Vec<String> = stations["features"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f["id"].as_str().map(str::to_string))
+        .take(3)
+        .collect();
+    if urls.is_empty() {
+        Err("NWS observation-stations response has no stations".to_string())
+    } else {
+        Ok(urls)
+    }
 }
 
 /// Formats an instant for the NWS `/observations?start=&end=` query. Must use the
@@ -858,7 +869,7 @@ mod tests {
 
     // @spec WX-SRC-007
     #[test]
-    fn first_station_url_takes_nearest() {
+    fn station_urls_are_proximity_ordered() {
         let stations = serde_json::json!({
             "features": [
                 { "id": "https://api.weather.gov/stations/KDPA" },
@@ -866,10 +877,34 @@ mod tests {
             ]
         });
         assert_eq!(
-            first_station_url(&stations).unwrap(),
-            "https://api.weather.gov/stations/KDPA"
+            station_urls(&stations).unwrap(),
+            vec![
+                "https://api.weather.gov/stations/KDPA",
+                "https://api.weather.gov/stations/KORD",
+            ]
         );
-        assert!(first_station_url(&serde_json::json!({ "features": [] })).is_err());
+        assert!(station_urls(&serde_json::json!({ "features": [] })).is_err());
+    }
+
+    // @spec WX-SRC-008
+    #[test]
+    fn station_urls_caps_at_three() {
+        let stations = serde_json::json!({
+            "features": [
+                { "id": "https://api.weather.gov/stations/A" },
+                { "id": "https://api.weather.gov/stations/B" },
+                { "id": "https://api.weather.gov/stations/C" },
+                { "id": "https://api.weather.gov/stations/D" }
+            ]
+        });
+        assert_eq!(
+            station_urls(&stations).unwrap(),
+            vec![
+                "https://api.weather.gov/stations/A",
+                "https://api.weather.gov/stations/B",
+                "https://api.weather.gov/stations/C",
+            ]
+        );
     }
 
     // @spec WX-PARSE-004, WX-PARSE-005, WX-PARSE-006, WX-PARSE-008, WX-PARSE-009
