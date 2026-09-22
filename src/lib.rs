@@ -182,6 +182,13 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
         Err(resp) => return Ok(resp),
     };
 
+    // Hike identity is part of admission (API-ROUTE-004): /hike and /hike/
+    // name no hike and must 404 regardless of whether a window was ever
+    // supplied, so this runs before window parsing.
+    let Some(id) = ctx.param("id") else {
+        return Response::error("hike not found", 404);
+    };
+
     // API version 3 supplies the hike's window per request (see API-WIN-*).
     let url = req.url()?;
     let mut start_param = None;
@@ -196,10 +203,6 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let window = match parse_window(version, start_param.as_deref(), end_param.as_deref()) {
         Ok(w) => w,
         Err(e) => return Response::error(e, 400),
-    };
-
-    let Some(id) = ctx.param("id") else {
-        return Response::error("hike not found", 404);
     };
 
     let config = match load_r2_config(&ctx.env) {

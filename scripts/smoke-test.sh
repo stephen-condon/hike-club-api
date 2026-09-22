@@ -156,7 +156,8 @@ else
 fi
 
 # @spec API-RESP-004, HIKE-REC-002 — a hike that does not exist is a 404, not an error.
-check_status "hike that does not exist" 404 "/hike/definitely-not-a-hike" \
+check_status "hike that does not exist" 404 \
+  "/hike/definitely-not-a-hike?start=2026-01-01T08%3A00%3A00-05%3A00&end=2026-01-01T12%3A00%3A00-05%3A00" \
   -H "x-api-key: $api_key" -H "x-api-version: 3"
 
 # @spec API-ROUTE-004 — /hike and /hike/ address the collection and name nothing
