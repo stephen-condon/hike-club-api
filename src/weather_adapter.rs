@@ -30,25 +30,37 @@ impl WeatherSource for NwsWeatherSource {
 
         if end < now {
             let key = observation_cache_key(lat, lon, start, offset);
+            // A completed hike's absent readings never appear later, so an
+            // exhausted station walk (WX-SRC-008) is cached as a settled
+            // answer rather than an upstream gap.
             cached(
                 &key,
                 OBSERVATION_TTL_SECS,
+                true,
                 fetch_nws_observations(lat, lon, start, end),
             )
             .await
         } else {
             let key = forecast_cache_key(lat, lon);
-            cached(&key, FORECAST_TTL_SECS, fetch_nws_forecast(lat, lon)).await
+            // An empty forecast is an upstream gap, not authoritative "no
+            // weather", so it is never cached.
+            cached(&key, FORECAST_TTL_SECS, false, fetch_nws_forecast(lat, lon)).await
         }
     }
 }
 
 /// Cache-API read-through: serve a cached `RawForecast` for `key`, else run
-/// `fetch`, cache it under `ttl`, and return it.
-// @spec WX-CACHE-001, WX-CACHE-004, WX-CACHE-005, WX-CACHE-006, WX-CACHE-007
+/// `fetch`, cache it under `ttl`, and return it. `cache_empty` marks a
+/// periodless result as a settled answer rather than an upstream gap — true
+/// for observations (a completed hike's absent readings will not appear
+/// later, once WX-SRC-008 has exhausted every permitted station), false for
+/// forecasts (an empty one is always a gap).
+// @spec WX-CACHE-001, WX-CACHE-004, WX-CACHE-005, WX-CACHE-006, WX-CACHE-007,
+// @spec WX-CACHE-008
 async fn cached(
     key: &str,
     ttl: u32,
+    cache_empty: bool,
     fetch: impl Future<Output = Result<RawForecast, String>>,
 ) -> Result<RawForecast, String> {
     let cache = worker::Cache::default();
@@ -73,10 +85,10 @@ async fn cached(
 
     let raw = fetch.await?;
 
-    // Don't cache a periodless result: it's an upstream gap, not authoritative
-    // "no weather". Caching it would suppress weather for the whole TTL; instead
+    // Don't cache a periodless result unless the caller says it's settled: an
+    // upstream gap would otherwise suppress weather for the whole TTL; instead
     // let the next request retry.
-    if raw.periods.is_empty() {
+    if raw.periods.is_empty() && !cache_empty {
         return Ok(raw);
     }
 
