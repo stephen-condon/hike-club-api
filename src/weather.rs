@@ -167,6 +167,14 @@ pub(crate) fn nws_query_time(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
+/// Cache key for a point's full hourly forecast. Four decimals match the NWS
+/// request precision, so a key never stands for a coarser query than it
+/// answers.
+// @spec WX-CACHE-002
+pub(crate) fn forecast_cache_key(lat: f64, lon: f64) -> String {
+    format!("https://cache.internal/weather?lat={lat:.4}&lon={lon:.4}")
+}
+
 /// Celsius -> Fahrenheit.
 fn c_to_f(c: f64) -> f64 {
     c * 9.0 / 5.0 + 32.0
@@ -806,6 +814,15 @@ mod tests {
             "https://api.weather.gov/gridpoints/LWX/1,1/stations"
         );
         assert!(observation_stations_url(&serde_json::json!({})).is_err());
+    }
+
+    // @spec WX-CACHE-002
+    #[test]
+    fn forecast_cache_key_uses_four_decimals() {
+        assert_eq!(
+            forecast_cache_key(37.60005, -79.2),
+            "https://cache.internal/weather?lat=37.6001&lon=-79.2000"
+        );
     }
 
     // @spec WX-SRC-007

@@ -1,6 +1,7 @@
 use crate::weather::{
-    RawForecast, WeatherSource, first_station_url, forecast_hourly_url, nws_query_time,
-    observation_stations_url, parse_active_alerts, parse_observations, parse_periods,
+    RawForecast, WeatherSource, first_station_url, forecast_cache_key, forecast_hourly_url,
+    nws_query_time, observation_stations_url, parse_active_alerts, parse_observations,
+    parse_periods,
 };
 use chrono::{DateTime, Utc};
 
@@ -38,7 +39,7 @@ impl WeatherSource for NwsWeatherSource {
             )
             .await
         } else {
-            let key = format!("https://cache.internal/weather?lat={lat:.2}&lon={lon:.2}");
+            let key = forecast_cache_key(lat, lon);
             cached(&key, FORECAST_TTL_SECS, fetch_nws_forecast(lat, lon)).await
         }
     }
