@@ -1,9 +1,9 @@
 use crate::weather::{
     RawForecast, WeatherSource, first_station_url, forecast_cache_key, forecast_hourly_url,
-    nws_query_time, observation_stations_url, parse_active_alerts, parse_observations,
-    parse_periods,
+    nws_query_time, observation_cache_key, observation_stations_url, parse_active_alerts,
+    parse_observations, parse_periods,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, FixedOffset, Utc};
 
 const USER_AGENT: &str = "hike-club-api (contact: scondon87@gmail.com)";
 /// ponytail: Cache API only, no KV. Add KV if cross-colo cache sharing matters.
@@ -21,6 +21,7 @@ impl WeatherSource for NwsWeatherSource {
         lon: f64,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
+        offset: FixedOffset,
     ) -> Result<RawForecast, String> {
         // A fully-past hike has no forecast coverage (NWS hourly forecast is
         // future-only), so pull the actual observed weather instead.
@@ -28,10 +29,7 @@ impl WeatherSource for NwsWeatherSource {
             .ok_or_else(|| "invalid current time".to_string())?;
 
         if end < now {
-            let key = format!(
-                "https://cache.internal/observed?lat={lat:.2}&lon={lon:.2}&day={}",
-                start.date_naive()
-            );
+            let key = observation_cache_key(lat, lon, start, offset);
             cached(
                 &key,
                 OBSERVATION_TTL_SECS,

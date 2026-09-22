@@ -38,12 +38,16 @@ pub trait WeatherSource {
     /// Fetches weather covering the hike `[start, end]` window: the forecast for
     /// upcoming hikes, or actual observations for completed (past) ones. Returns
     /// the *full* set of periods + alerts; builders narrow to the window themselves.
+    /// `offset` is the hike's UTC offset, needed to key observations by the
+    /// same local calendar day precipitation timing uses.
+    // @spec WX-CACHE-010
     async fn forecast(
         &self,
         lat: f64,
         lon: f64,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
+        offset: FixedOffset,
     ) -> Result<RawForecast, String>;
 }
 
@@ -173,6 +177,20 @@ pub(crate) fn nws_query_time(t: DateTime<Utc>) -> String {
 // @spec WX-CACHE-002
 pub(crate) fn forecast_cache_key(lat: f64, lon: f64) -> String {
     format!("https://cache.internal/weather?lat={lat:.4}&lon={lon:.4}")
+}
+
+/// Cache key for a point's observed weather on one local calendar day — the
+/// same day boundary `precip_timing` uses, so the segment has one definition
+/// of "day".
+// @spec WX-CACHE-003
+pub(crate) fn observation_cache_key(
+    lat: f64,
+    lon: f64,
+    start: DateTime<Utc>,
+    offset: FixedOffset,
+) -> String {
+    let day = start.with_timezone(&offset).date_naive();
+    format!("https://cache.internal/observed?lat={lat:.4}&lon={lon:.4}&day={day}")
 }
 
 /// Celsius -> Fahrenheit.
@@ -822,6 +840,19 @@ mod tests {
         assert_eq!(
             forecast_cache_key(37.60005, -79.2),
             "https://cache.internal/weather?lat=37.6001&lon=-79.2000"
+        );
+    }
+
+    // @spec WX-CACHE-003
+    #[test]
+    fn observation_cache_key_uses_four_decimals_and_the_local_day() {
+        // 2026-07-18T02:00:00Z is 2026-07-17T22:00 local at -04:00 — a
+        // different calendar day than the UTC date.
+        let start: DateTime<Utc> = "2026-07-18T02:00:00Z".parse().unwrap();
+        let offset = FixedOffset::west_opt(4 * 3600).unwrap();
+        assert_eq!(
+            observation_cache_key(37.60005, -79.2, start, offset),
+            "https://cache.internal/observed?lat=37.6001&lon=-79.2000&day=2026-07-17"
         );
     }
 
