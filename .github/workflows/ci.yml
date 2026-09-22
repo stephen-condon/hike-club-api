@@ -93,4 +93,12 @@ jobs:
         env:
           SMOKE_BASE_URL: ${{ secrets.PREVIEW_SMOKE_BASE_URL }}
           SMOKE_API_KEY: ${{ secrets.PREVIEW_SMOKE_API_KEY }}
-        run: scripts/smoke-test.sh "$SMOKE_BASE_URL" "$SMOKE_API_KEY"
+        # A deploy is eventually consistent: an edge can still serve the
+        # previous version for a moment after `wrangler deploy` returns. One
+        # retry after a pause tells propagation lag apart from a real
+        # failure. Mirrors release.yml's same fix for the production deploy.
+        run: |
+          scripts/smoke-test.sh "$SMOKE_BASE_URL" "$SMOKE_API_KEY" && exit 0
+          echo "retrying after a pause for deploy propagation"
+          sleep 15
+          scripts/smoke-test.sh "$SMOKE_BASE_URL" "$SMOKE_API_KEY"
