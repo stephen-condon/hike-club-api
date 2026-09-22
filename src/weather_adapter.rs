@@ -56,7 +56,7 @@ impl WeatherSource for NwsWeatherSource {
 /// later, once WX-SRC-008 has exhausted every permitted station), false for
 /// forecasts (an empty one is always a gap).
 // @spec WX-CACHE-001, WX-CACHE-004, WX-CACHE-005, WX-CACHE-006, WX-CACHE-007,
-// @spec WX-CACHE-008
+// @spec WX-CACHE-008, WX-CACHE-009
 async fn cached(
     key: &str,
     ttl: u32,
@@ -74,10 +74,11 @@ async fn cached(
     {
         let body = hit.text().await.map_err(|e| e.to_string())?;
         if let Ok(raw) = serde_json::from_str::<RawForecast>(&body) {
-            // An empty cached entry is a non-answer (past upstream gap/error),
-            // not "no weather" — treat it as a miss and refetch, which also
-            // self-heals any such entry cached before this guard existed.
-            if !raw.periods.is_empty() {
+            // An empty cached entry is a non-answer (past upstream gap/error)
+            // unless `cache_empty` marks it a settled one — otherwise treat it
+            // as a miss and refetch, which also self-heals any such entry
+            // cached before this guard existed.
+            if !raw.periods.is_empty() || cache_empty {
                 return Ok(raw);
             }
         }
