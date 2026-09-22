@@ -38,12 +38,16 @@ pub trait WeatherSource {
     /// Fetches weather covering the hike `[start, end]` window: the forecast for
     /// upcoming hikes, or actual observations for completed (past) ones. Returns
     /// the *full* set of periods + alerts; builders narrow to the window themselves.
+    /// `offset` is the hike's UTC offset, needed to key observations by the
+    /// same local calendar day precipitation timing uses.
+    // @spec WX-CACHE-010
     async fn forecast(
         &self,
         lat: f64,
         lon: f64,
         start: DateTime<Utc>,
         end: DateTime<Utc>,
+        offset: FixedOffset,
     ) -> Result<RawForecast, String>;
 }
 
@@ -149,14 +153,25 @@ pub(crate) fn observation_stations_url(points: &serde_json::Value) -> Result<Str
         .ok_or_else(|| "NWS points response missing observationStations".to_string())
 }
 
-/// Pure parsing of an NWS observation-stations response -> the nearest station's
-/// URL. Stations come proximity-ordered, so `features[0].id` is closest.
-// @spec WX-SRC-007
-pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, String> {
-    stations["features"][0]["id"]
-        .as_str()
-        .map(str::to_string)
-        .ok_or_else(|| "NWS observation-stations response has no stations".to_string())
+/// Pure parsing of an NWS observation-stations response -> up to the three
+/// nearest stations' URLs, in the proximity order NWS returns them. A listed
+/// station is not necessarily a reporting one, so callers try each in turn
+/// until one yields readings; the cap bounds the latency a fully dead
+/// neighbourhood of stations can cost.
+// @spec WX-SRC-007, WX-SRC-008
+pub(crate) fn station_urls(stations: &serde_json::Value) -> Result<Vec<String>, String> {
+    let urls: Vec<String> = stations["features"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|f| f["id"].as_str().map(str::to_string))
+        .take(3)
+        .collect();
+    if urls.is_empty() {
+        Err("NWS observation-stations response has no stations".to_string())
+    } else {
+        Ok(urls)
+    }
 }
 
 /// Formats an instant for the NWS `/observations?start=&end=` query. Must use the
@@ -165,6 +180,28 @@ pub(crate) fn first_station_url(stations: &serde_json::Value) -> Result<String, 
 // @spec WX-SRC-009
 pub(crate) fn nws_query_time(t: DateTime<Utc>) -> String {
     t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+}
+
+/// Cache key for a point's full hourly forecast. Four decimals match the NWS
+/// request precision, so a key never stands for a coarser query than it
+/// answers.
+// @spec WX-CACHE-002
+pub(crate) fn forecast_cache_key(lat: f64, lon: f64) -> String {
+    format!("https://cache.internal/weather?lat={lat:.4}&lon={lon:.4}")
+}
+
+/// Cache key for a point's observed weather on one local calendar day — the
+/// same day boundary `precip_timing` uses, so the segment has one definition
+/// of "day".
+// @spec WX-CACHE-003
+pub(crate) fn observation_cache_key(
+    lat: f64,
+    lon: f64,
+    start: DateTime<Utc>,
+    offset: FixedOffset,
+) -> String {
+    let day = start.with_timezone(&offset).date_naive();
+    format!("https://cache.internal/observed?lat={lat:.4}&lon={lon:.4}&day={day}")
 }
 
 /// Celsius -> Fahrenheit.
@@ -808,9 +845,31 @@ mod tests {
         assert!(observation_stations_url(&serde_json::json!({})).is_err());
     }
 
+    // @spec WX-CACHE-002
+    #[test]
+    fn forecast_cache_key_uses_four_decimals() {
+        assert_eq!(
+            forecast_cache_key(37.60005, -79.2),
+            "https://cache.internal/weather?lat=37.6001&lon=-79.2000"
+        );
+    }
+
+    // @spec WX-CACHE-003
+    #[test]
+    fn observation_cache_key_uses_four_decimals_and_the_local_day() {
+        // 2026-07-18T02:00:00Z is 2026-07-17T22:00 local at -04:00 — a
+        // different calendar day than the UTC date.
+        let start: DateTime<Utc> = "2026-07-18T02:00:00Z".parse().unwrap();
+        let offset = FixedOffset::west_opt(4 * 3600).unwrap();
+        assert_eq!(
+            observation_cache_key(37.60005, -79.2, start, offset),
+            "https://cache.internal/observed?lat=37.6001&lon=-79.2000&day=2026-07-17"
+        );
+    }
+
     // @spec WX-SRC-007
     #[test]
-    fn first_station_url_takes_nearest() {
+    fn station_urls_are_proximity_ordered() {
         let stations = serde_json::json!({
             "features": [
                 { "id": "https://api.weather.gov/stations/KDPA" },
@@ -818,10 +877,34 @@ mod tests {
             ]
         });
         assert_eq!(
-            first_station_url(&stations).unwrap(),
-            "https://api.weather.gov/stations/KDPA"
+            station_urls(&stations).unwrap(),
+            vec![
+                "https://api.weather.gov/stations/KDPA",
+                "https://api.weather.gov/stations/KORD",
+            ]
         );
-        assert!(first_station_url(&serde_json::json!({ "features": [] })).is_err());
+        assert!(station_urls(&serde_json::json!({ "features": [] })).is_err());
+    }
+
+    // @spec WX-SRC-008
+    #[test]
+    fn station_urls_caps_at_three() {
+        let stations = serde_json::json!({
+            "features": [
+                { "id": "https://api.weather.gov/stations/A" },
+                { "id": "https://api.weather.gov/stations/B" },
+                { "id": "https://api.weather.gov/stations/C" },
+                { "id": "https://api.weather.gov/stations/D" }
+            ]
+        });
+        assert_eq!(
+            station_urls(&stations).unwrap(),
+            vec![
+                "https://api.weather.gov/stations/A",
+                "https://api.weather.gov/stations/B",
+                "https://api.weather.gov/stations/C",
+            ]
+        );
     }
 
     // @spec WX-PARSE-004, WX-PARSE-005, WX-PARSE-006, WX-PARSE-008, WX-PARSE-009

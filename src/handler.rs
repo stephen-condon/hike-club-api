@@ -116,7 +116,7 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             let end = record_end.to_utc();
 
             let forecast = weather_source
-                .forecast(record.meeting.lat, record.meeting.lon, start, end)
+                .forecast(record.meeting.lat, record.meeting.lon, start, end, offset)
                 .await;
             let weather = forecast
                 .as_ref()
@@ -141,7 +141,7 @@ pub async fn build_hike_response<S: HikeStore, W: WeatherSource>(
             let end = end_local.to_utc();
 
             let forecast = weather_source
-                .forecast(record.meeting.lat, record.meeting.lon, start, end)
+                .forecast(record.meeting.lat, record.meeting.lon, start, end, offset)
                 .await;
             let weather = forecast
                 .as_ref()
@@ -320,7 +320,29 @@ mod tests {
             _lon: f64,
             _start: chrono::DateTime<chrono::Utc>,
             _end: chrono::DateTime<chrono::Utc>,
+            _offset: FixedOffset,
         ) -> Result<RawForecast, String> {
+            self.result.clone()
+        }
+    }
+
+    /// A `WeatherSource` that records the offset it was called with, so tests
+    /// can assert what `build_hike_response` passed through.
+    struct SpyWeather {
+        result: Result<RawForecast, String>,
+        seen_offset: std::cell::Cell<Option<FixedOffset>>,
+    }
+
+    impl WeatherSource for SpyWeather {
+        async fn forecast(
+            &self,
+            _lat: f64,
+            _lon: f64,
+            _start: chrono::DateTime<chrono::Utc>,
+            _end: chrono::DateTime<chrono::Utc>,
+            offset: FixedOffset,
+        ) -> Result<RawForecast, String> {
+            self.seen_offset.set(Some(offset));
             self.result.clone()
         }
     }
@@ -811,5 +833,48 @@ mod tests {
         let w = r.weather.unwrap();
         assert_eq!(w.start_conditions, "Partly Cloudy");
         assert_eq!(w.end_conditions, "Partly Cloudy");
+    }
+
+    /// `WeatherSource` needs the hike's UTC offset to key observations by the
+    /// same local calendar day precipitation timing uses (WX-CACHE-003). v2
+    /// takes it from the record's own start.
+    // @spec WX-CACHE-010
+    #[tokio::test]
+    async fn v2_passes_the_records_offset_to_the_weather_source() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = SpyWeather {
+            result: Ok(sample_forecast()),
+            seen_offset: std::cell::Cell::new(None),
+        };
+        build_hike_response(&store, &weather, "x", ApiVersion::V2, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            weather.seen_offset.get(),
+            Some(FixedOffset::west_opt(4 * 3600).unwrap())
+        );
+    }
+
+    /// The same, for v3: the offset comes from the caller's query window, not
+    /// the record.
+    // @spec WX-CACHE-010
+    #[tokio::test]
+    async fn v3_passes_the_query_windows_offset_to_the_weather_source() {
+        let store = FixtureStore {
+            record: Some(sample_record()),
+        };
+        let weather = SpyWeather {
+            result: Ok(sample_forecast()),
+            seen_offset: std::cell::Cell::new(None),
+        };
+        build_hike_response(&store, &weather, "x", ApiVersion::V3, Some(sample_window()))
+            .await
+            .unwrap();
+        assert_eq!(
+            weather.seen_offset.get(),
+            Some(FixedOffset::west_opt(4 * 3600).unwrap())
+        );
     }
 }

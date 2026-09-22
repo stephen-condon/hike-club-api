@@ -13,7 +13,7 @@ Prefix: `WX`. Design: [`weather-design.md`](weather-design.md).
 - [x] **WX-SRC-005**: If a National Weather Service response carries an HTTP status of 400 or above, then the system shall treat that request as failed rather than parsing its body as data.
 - [x] **WX-SRC-006**: When fetching a forecast, the system shall resolve the hourly forecast URL from the `forecastHourly` property of the `/points/{lat},{lon}` response.
 - [x] **WX-SRC-007**: When fetching observations, the system shall resolve the station list URL from the `observationStations` property of the `/points/{lat},{lon}` response.
-- [ ] **WX-SRC-008**: When fetching observations, the system shall try stations in the proximity order the National Weather Service returns them, advancing to the next station when one yields no readings for the hike window, trying at most three stations.
+- [x] **WX-SRC-008**: When fetching observations, the system shall try stations in the proximity order the National Weather Service returns them, advancing to the next station when one yields no readings for the hike window, trying at most three stations.
 - [x] **WX-SRC-009**: The system shall format observation query timestamps with a trailing `Z` rather than a numeric UTC offset.
 - [x] **WX-SRC-010**: The system shall reshape station observations into the same period representation used for forecast periods, so that no builder depends on which source produced a period.
 - [x] **WX-SRC-011**: If any National Weather Service request fails, then the system shall report a weather failure rather than a partial result.
@@ -21,14 +21,14 @@ Prefix: `WX`. Design: [`weather-design.md`](weather-design.md).
 ## Caching
 
 - [x] **WX-CACHE-001**: The system shall cache National Weather Service results in the Workers Cache API and serve a cached result in preference to fetching.
-- [ ] **WX-CACHE-002**: The system shall key a cached forecast by the meeting point's coordinates at four decimal places.
-- [ ] **WX-CACHE-003**: The system shall key cached observations by the meeting point's coordinates at four decimal places together with the hike's local calendar day.
-- [ ] **WX-CACHE-010**: The system shall receive the hike's UTC offset from its caller, so that the local calendar day used for observation cache keys is the same one used for precipitation timing.
+- [x] **WX-CACHE-002**: The system shall key a cached forecast by the meeting point's coordinates at four decimal places.
+- [x] **WX-CACHE-003**: The system shall key cached observations by the meeting point's coordinates at four decimal places together with the hike's local calendar day.
+- [x] **WX-CACHE-010**: The system shall receive the hike's UTC offset from its caller, so that the local calendar day used for observation cache keys is the same one used for precipitation timing.
 - [x] **WX-CACHE-004**: The system shall cache forecasts for 600 seconds and observations for 86400 seconds.
 - [x] **WX-CACHE-005**: If a freshly fetched forecast contains no periods, then the system shall return it without writing it to the cache, because an empty forecast is an upstream gap rather than an answer.
 - [x] **WX-CACHE-006**: If a cached forecast entry contains no periods, then the system shall treat it as a cache miss and fetch again.
-- [ ] **WX-CACHE-008**: When observation sourcing yields no periods after every station permitted by WX-SRC-008 has been tried, the system shall cache that empty result for the observation cache lifetime, because a completed hike's absent readings will not appear later.
-- [ ] **WX-CACHE-009**: When a cached observation entry contains no periods, the system shall serve it as an answer rather than treating it as a cache miss.
+- [x] **WX-CACHE-008**: When observation sourcing yields no periods after every station permitted by WX-SRC-008 has been tried, the system shall cache that empty result for the observation cache lifetime, because a completed hike's absent readings will not appear later.
+- [x] **WX-CACHE-009**: When a cached observation entry contains no periods, the system shall serve it as an answer rather than treating it as a cache miss.
 - [x] **WX-CACHE-007**: The system shall cache the full hourly forecast for a point rather than the periods filtered to one hike's window.
 
 ## Parsing
