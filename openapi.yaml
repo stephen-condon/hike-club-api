@@ -34,11 +34,10 @@ paths:
         stored record), single `conditions`, and non-null `map` are frozen;
         it ignores the `start`/`end` query parameters and fails with 502 if
         the record carries no dates of its own, and a missing map image is
-        also a 502 under version 2. Version 2 is deprecated
-        with a sunset of 2026-11-18 and carries `Deprecation`, `Sunset` and
-        `Link` headers. Version 1 is past its sunset of
-        2026-08-20 and is no longer served: it returns 410 naming the versions
-        still available. A missing or unknown version returns 400.
+        also a 502 under version 2. Versions 1 and 2 are past
+        their sunset dates (2026-08-20 and 2026-09-22) and are no longer
+        served: either returns 410 naming the versions still available. A
+        missing or unknown version returns 400.
       parameters:
         - name: id
           in: path
@@ -135,10 +134,10 @@ components:
       in: header
       required: true
       description: >
-        API version to serve. `3` is current. `2` is deprecated, sunset
-        2026-11-18. `1` is a known version past its sunset
-        of 2026-08-20 and answers 410; it stays listed so a stale client is told
-        its version is finished rather than that it never existed.
+        API version to serve. `3` is current. `1` and `2` are known versions
+        past their sunset (2026-08-20 and 2026-09-22 respectively) and answer
+        410; they stay listed so a stale client is told its version is
+        finished rather than that it never existed.
         The header is required; a missing or unknown value returns 400.
       schema:
         type: string

@@ -56,7 +56,7 @@ A version registry maps each version to a sunset date or to nothing:
 | Version | Status | Sunset | Response shape |
 |---|---|---|---|
 | 1 | Sunset | `Thu, 20 Aug 2026 00:00:00 GMT` | none — removed |
-| 2 | Deprecated | `Wed, 18 Nov 2026 00:00:00 GMT` | frozen |
+| 2 | Sunset | `Tue, 22 Sep 2026 00:00:00 GMT` | frozen |
 | 3 | Current | — | current |
 
 A sunset version stays in the registry after its shape is deleted. The entry is what separates "this version is finished" from "this version never existed": without it, a stale client asking for version 1 would get the `400` meant for a typo instead of the `410` that tells it what to do.
@@ -178,7 +178,6 @@ Bodies are plain text, not JSON. The sole client renders a generic failure state
 ### Deferred
 
 1. **No cache headers on hike responses.** Every request re-reads R2 and re-presigns. Whether a short `Cache-Control` is worth the staleness after a reschedule is open.
-2. **v2's sunset is sixty days out.** `Wed, 18 Nov 2026` gives the app one release cycle to reach v3. Whether sixty days is the standing convention for future deprecations or a one-off for this transition is unsettled.
 3. **Nothing tells a client that a version is nearing sunset except the headers it may not read.** The `410` is the first hard signal, and by then the app is broken in the field.
 4. **The record's `start`/`end` fields become dead weight once v2 sunsets.** They stay in the schema only to serve v2 until 2026-11-18; removing them is a follow-up once no client can send v2.
 
