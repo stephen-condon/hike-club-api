@@ -35,6 +35,8 @@ jobs:
       - run: npm ci
 
       - uses: wagoid/commitlint-github-action@v6
+        with:
+          configFile: ./commitlint.config.mjs
 
   test:
     runs-on: ubuntu-latest
