@@ -48,32 +48,28 @@ Prefix: `API`. Design: [`api-surface-design.md`](api-surface-design.md).
 - [x] **API-WIN-001**: The system shall accept `start` and `end` as RFC 3339 query parameters on `GET /hike/{id}` and read them only when the negotiated API version is 3, ignoring them under every other version.
 - [x] **API-WIN-002**: Under API version 3, if `start` or `end` is absent from the query, or either does not parse as RFC 3339, then the system shall respond 400 naming which parameter and problem, before reading storage.
 - [x] **API-WIN-003**: Under API version 3, if `end` is not strictly after `start`, then the system shall respond 400 with `end must be after start`, before reading storage.
-- [x] **API-WIN-004**: Under API version 3, the system shall use the query's `start`/`end` as the hike's window for the weather query and offset, and shall not read the hike record's own `start`/`end` at all.
-- [x] **API-WIN-005**: Under API version 2, the system shall ignore the `start`/`end` query parameters and use the hike record's own `start`/`end` as its window, so that a hike record with neither fails a version-2 request but still serves under version 3.
+- [x] **API-WIN-004**: The system shall use the query's `start`/`end` as the hike's window for the weather query and offset, and shall not read the hike record for a window at all.
 
 ## Response assembly
 
-- [x] **API-RESP-001**: When a hike record is found and validated, the system shall respond 200 with the hike's id, meeting point, trails, map reference, weather availability flag, and weather block, plus — under API version 2 only — start and end.
-- [x] **API-RESP-002**: Under API version 2, the system shall echo `start` and `end` into the response verbatim from the hike record, preserving the UTC offset as written.
+- [x] **API-RESP-001**: When a hike record is found and validated, the system shall respond 200 with the hike's id, meeting point, trails, map reference, weather availability flag, and weather block.
 - [x] **API-RESP-003**: The system shall render `meetingPoint` as the record's latitude and longitude plus a `googleMapsUrl` of the form `https://maps.google.com/?q={lat},{lon}`.
 - [x] **API-RESP-004**: If no hike record exists for the requested id, then the system shall respond 404 with `hike not found`.
 - [x] **API-RESP-005**: If the weather segment does not produce a weather block for a hike, then the system shall respond 200 with `weatherAvailable: false` and a null `weather` block, without itself inspecting the underlying forecast.
 - [x] **API-RESP-006**: The system shall set `weatherAvailable` to true if and only if the response carries a weather block.
 - [x] **API-RESP-007**: If hike-record retrieval, hike-record validation, or map presigning fails, then the system shall respond 502 with `upstream error: {detail}`.
-- [x] **API-RESP-010**: If the trail map object cannot be confirmed to exist, then under API version 3 the system shall respond 200 with `mapAvailable: false` and a null `map`.
-- [x] **API-RESP-011**: If the trail map object cannot be confirmed to exist, then under API version 2 the system shall respond 502, because version 2's response shape cannot express an absent map.
-- [x] **API-RESP-008**: The system shall pass the hike window's UTC offset — the record's `start` under API version 2, the query's `start` under API version 3 — to the weather segment, so that precipitation timing and observation caching are both computed on the hike's local calendar day.
+- [x] **API-RESP-010**: If the trail map object cannot be confirmed to exist, then the system shall respond 200 with `mapAvailable: false` and a null `map`.
+- [x] **API-RESP-008**: The system shall pass the hike window's UTC offset — the query's `start` — to the weather segment, so that precipitation timing and observation caching are both computed on the hike's local calendar day.
 - [x] **API-RESP-009**: The system shall depend on hike storage and on weather only through the `HikeStore` and `WeatherSource` abstractions, so that response assembly is exercised in tests without network access or the Workers runtime.
 
 ## Wire contract
 
-- [x] **API-WIRE-001**: The system shall render the response envelope — `id`, `meetingPoint`, `trails`, `map`, `weatherAvailable`, `weather`, plus `start`/`end` under API version 2 only — under every API version it serves.
-- [x] **API-WIRE-003**: Under API version 2 the system shall render the weather block with `startTempF`, `endTempF`, `conditions`, `precipitation` carrying `probabilityPct`, `expected`, `startsAt`, and `endsAt`, plus `heatIndexF`, `windChillF`, and `alerts`.
-- [x] **API-WIRE-004**: Under API version 3 the system shall render the weather block as API version 2's, replacing `conditions` with `startConditions` and `endConditions`.
-- [x] **API-WIRE-009**: Under API version 3 the system shall render `map` as nullable and add a `mapAvailable` flag to the envelope.
-- [x] **API-WIRE-011**: Under API version 3 the system shall omit `start` and `end` from the envelope; `openapi.yaml` shall not require or document them on `HikeResponseV3`.
+- [x] **API-WIRE-001**: The system shall render the response envelope — `id`, `meetingPoint`, `trails`, `map`, `mapAvailable`, `weatherAvailable`, `weather` — under every API version it serves.
+- [x] **API-WIRE-004**: The system shall render the weather block with `startTempF`, `endTempF`, `startConditions`, `endConditions`, `precipitation` carrying `probabilityPct`, `expected`, `startsAt`, and `endsAt`, plus `heatIndexF`, `windChillF`, and `alerts`.
+- [x] **API-WIRE-009**: The system shall render `map` as nullable and carry a `mapAvailable` flag in the envelope.
+- [x] **API-WIRE-011**: The system shall omit `start` and `end` from the envelope; `openapi.yaml` shall not require or document them on `HikeResponseV3`.
 - [x] **API-WIRE-005**: The system shall render `map`, when present, as a presigned URL and an `expiresAt` timestamp in RFC 3339.
 - [x] **API-WIRE-006**: The system shall render error response bodies as plain text rather than JSON.
 - [x] **API-WIRE-007**: The system shall validate the serialized response of every API version it serves against the schema published in `openapi.yaml` as part of its test suite, without a deployed worker.
-- [x] **API-WIRE-008**: The system shall publish the API version 3 response schema in `openapi.yaml` and remove the API version 1 schema.
+- [x] **API-WIRE-008**: The system shall publish the API version 3 response schema in `openapi.yaml` and remove a sunset version's schema.
 - [x] **API-WIRE-010**: The system shall carry no response types, builders, or contract tests for an API version past its sunset.

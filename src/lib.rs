@@ -14,7 +14,7 @@ mod weather_adapter;
 
 use auth::{API_KEY_HEADER, is_authorized};
 use chrono::DateTime;
-use handler::{VersionedHike, build_hike_response, build_locations_response, parse_window};
+use handler::{build_hike_response, build_locations_response, parse_window};
 use r2_adapter::{R2HikeStore, load_r2_config};
 use version::{API_VERSION_HEADER, ApiVersion, gone_body, parse_version, sunset};
 use weather_adapter::NwsWeatherSource;
@@ -182,8 +182,7 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
         Err(resp) => return Ok(resp),
     };
 
-    // API version 3 supplies the hike's window per request (see API-WIN-*); v2
-    // ignores the query and reads the record's own start/end instead.
+    // API version 3 supplies the hike's window per request (see API-WIN-*).
     let url = req.url()?;
     let mut start_param = None;
     let mut end_param = None;
@@ -218,8 +217,7 @@ async fn handle_hike(req: Request, ctx: RouteContext<()>) -> Result<Response> {
     let weather_source = NwsWeatherSource;
 
     match build_hike_response(&store, &weather_source, id, version, window).await {
-        Ok(Some(VersionedHike::V2(r))) => with_deprecation(Response::from_json(&r)?, version),
-        Ok(Some(VersionedHike::V3(r))) => with_deprecation(Response::from_json(&r)?, version),
+        Ok(Some(r)) => with_deprecation(Response::from_json(&r)?, version),
         Ok(None) => Response::error("hike not found", 404),
         Err(e) => Response::error(format!("upstream error: {e}"), 502),
     }

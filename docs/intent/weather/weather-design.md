@@ -97,19 +97,13 @@ The observation path returns no alerts at all. Active alerts are a statement abo
 
 ## Version Output
 
-| | v2 (frozen) | v3 |
-|---|---|---|
-| Temperature | `startTempF` / `endTempF` — first and last in-window periods | same |
-| Conditions | `conditions` — first in-window period | `startConditions` / `endConditions` — first and last in-window periods |
-| Precipitation | `probabilityPct`, `expected`, `startsAt`, `endsAt` | same |
-| NWS alerts | window-overlapping only | same |
-| Heat index / wind chill | reported when their gates are met | same |
+The response reports `startTempF`/`endTempF` (first and last in-window periods), `startConditions`/`endConditions` (first and last in-window periods), precipitation (`probabilityPct`, `expected`, `startsAt`, `endsAt`), NWS alerts (window-overlapping only), and heat index / wind chill (reported when their gates are met).
 
-A four-hour hike that starts at 62°F and ends at 81°F is badly described by one number, which is why both ends are reported. The same is true of the sky, and v2 does not yet say so: a hike that starts clear and ends in thunderstorms reads "Sunny", because conditions were never paired with the temperatures they describe. v3 pairs them.
+A four-hour hike that starts at 62°F and ends at 81°F is badly described by one number, which is why both ends are reported. The same is true of the sky: a hike that starts clear and ends in thunderstorms is badly described by a single condition phrase, which is why conditions are paired with the temperatures they describe, at both ends of the window.
 
 ## Precipitation Timing
 
-`expected`, `startsAt`, and `endsAt` describe rain across the hike's **local calendar day**, not its window — the day of `start` in the record's own offset. Timestamps are emitted in that same offset and may fall before or after the hike.
+`expected`, `startsAt`, and `endsAt` describe rain across the hike's **local calendar day**, not its window — the day of `start` in the offset the caller supplied. Timestamps are emitted in that same offset and may fall before or after the hike.
 
 The day boundary is local rather than UTC because the question being answered is a human one. A parent reading "rain starts at 2pm" is asking about their day, which begins at midnight where they live; a UTC day for a US-Central hike would run from 19:00 the previous evening, folding in the night before and cutting off the evening ahead.
 
@@ -154,7 +148,7 @@ Knowing rain arrives at 2pm lets a leader start early rather than cancel, which 
 3. ✅ Timing spans the local calendar day, not the hike window — and that same day boundary keys the observation cache.
 4. ✅ Observed precipitation is binary; "did it rain" is the question a completed hike answers.
 5. ✅ A non-reporting nearest station falls through to the next, up to three.
-6. ✅ Conditions are paired with temperatures at both ends of the window, in v3.
+6. ✅ Conditions are paired with temperatures at both ends of the window.
 
 ### Known unhandled edge cases
 

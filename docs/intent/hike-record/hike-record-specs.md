@@ -17,7 +17,7 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 - [x] **HIKE-REC-002**: If no object exists at `hikes/{id}.json`, then the system shall report the hike as absent rather than as an error.
 - [x] **HIKE-REC-003**: If the object at `hikes/{id}.json` carries no body, or does not deserialize into the hike record schema, then the system shall report an error rather than reporting the hike as absent.
 - [x] **HIKE-REC-004**: The system shall ignore fields present in the record JSON that the hike record schema does not define.
-- [x] **HIKE-REC-005**: The system shall read `id`, `meeting.lat`, `meeting.lon`, `trails`, and `mapKey` from every hike record, and `start`/`end` when present, so that a record written with no date still deserializes.
+- [x] **HIKE-REC-005**: The system shall read `id`, `meeting.lat`, `meeting.lon`, `trails`, and `mapKey` from every hike record, ignoring `start`/`end` and any other field the schema does not define, so that a record saved before the admin stopped writing them still deserializes.
 
 ## Location list
 
@@ -27,13 +27,6 @@ Prefix: `HIKE`. Design: [`hike-record-design.md`](hike-record-design.md).
 - [x] **HIKE-LOC-004**: When the location list is read, the system shall return its entries in stored order.
 - [x] **HIKE-LOC-005**: The system shall accept an empty array at `resources/hike-locations.json` as a valid, empty location list.
 - [x] **HIKE-LOC-006**: The system shall ignore fields on a location-list entry other than `short_name` and `full_name`.
-
-## Record validation
-
-- [x] **HIKE-REC-006**: When serving API version 2, if a hike record's `start` or `end` is absent or does not parse as an RFC 3339 timestamp carrying a UTC offset, then the system shall report an error rather than serving the hike. API version 3 never reads the record's `start`/`end` and so is unaffected by either (`api:API-WIN-004`, `api:API-WIN-005`).
-- [x] **HIKE-REC-007**: Where a hike record carries both `start` and `end`, if `end` is not strictly after `start`, then the system shall report an error rather than serving the hike.
-- [x] **HIKE-REC-008**: The system shall validate a hike record's timestamps during retrieval, so that no consumer receives a record it must itself parse or check.
-- [x] **HIKE-REC-009**: The system shall return each retrieved hike record with its `start` and `end` already parsed, retaining the UTC offset each was written with, where either is present.
 
 ## Map presigning
 
