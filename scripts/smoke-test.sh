@@ -88,12 +88,12 @@ check_status "unsupported method with a wrong key" 405 "/hike/smoke-test" -X DEL
 
 # @spec API-AUTH-003 — a missing key is rejected before anything else happens.
 check_status "hike without an api key" 401 "/hike/smoke-test" \
-  -H "x-api-version: 2"
+  -H "x-api-version: 3"
 
 # @spec API-AUTH-002, API-AUTH-003, API-LOC-004 — the locations endpoint is behind
 # the same key, which is checked before the location list is read.
 check_status "locations without an api key" 401 "/hike-locations" \
-  -H "x-api-version: 2"
+  -H "x-api-version: 3"
 
 # @spec API-WIRE-006 — error bodies are plain text, not JSON.
 if head -c 1 "$body_file" | grep -q '{'; then
@@ -132,13 +132,20 @@ check_status "hike with a non-integer version" 400 "/hike/smoke-test" \
 # @spec API-VER-005, API-VER-009 — a version past its sunset is gone, not merely
 # deprecated, on every endpoint that negotiates a version: it stays registered, so
 # it answers 410 rather than the 400 for an unknown version. The body names the
-# version, the date it went, and what to ask for instead.
-check_status "hike under a sunset version" 410 "/hike/smoke-test" \
+# version, the date it went, and what to ask for instead. v1 and v2 both check
+# this, since both are now past their sunset.
+check_status "hike under a v1-sunset version" 410 "/hike/smoke-test" \
   -H "x-api-key: $api_key" -H "x-api-version: 1"
 check_body "410 names the version, its sunset and the live versions" \
   '^api version 1 was sunset on .+; supported versions: .+$'
-check_status "locations under a sunset version" 410 "/hike-locations" \
+check_status "locations under a v1-sunset version" 410 "/hike-locations" \
   -H "x-api-key: $api_key" -H "x-api-version: 1"
+check_status "hike under a v2-sunset version" 410 "/hike/smoke-test" \
+  -H "x-api-key: $api_key" -H "x-api-version: 2"
+check_body "410 names v2, its sunset and the live versions" \
+  '^api version 2 was sunset on .+; supported versions: .+$'
+check_status "locations under a v2-sunset version" 410 "/hike-locations" \
+  -H "x-api-key: $api_key" -H "x-api-version: 2"
 
 # @spec API-VER-007 — the 410 carries no Sunset header; the sunset is the body.
 if grep -qiE '^(deprecation|sunset):' "$head_file"; then
@@ -149,27 +156,28 @@ else
 fi
 
 # @spec API-RESP-004, HIKE-REC-002 — a hike that does not exist is a 404, not an error.
-check_status "hike that does not exist" 404 "/hike/definitely-not-a-hike" \
-  -H "x-api-key: $api_key" -H "x-api-version: 2"
+check_status "hike that does not exist" 404 \
+  "/hike/definitely-not-a-hike?start=2026-01-01T08%3A00%3A00-05%3A00&end=2026-01-01T12%3A00%3A00-05%3A00" \
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
 
 # @spec API-ROUTE-004 — /hike and /hike/ address the collection and name nothing
 # in it: a hike that does not exist, not an unrouted path and not a bad request.
 check_status "hike collection with no id" 404 "/hike" \
-  -H "x-api-key: $api_key" -H "x-api-version: 2"
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
 check_status "hike collection with a trailing slash" 404 "/hike/" \
-  -H "x-api-key: $api_key" -H "x-api-version: 2"
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
 
 # @spec API-LOC-001, API-LOC-002, HIKE-LOC-001, HIKE-CFG-002 — the location list is
 # read from R2 through the HIKES binding and served as JSON.
 check_status "locations are served" 200 "/hike-locations" \
-  -H "x-api-key: $api_key" -H "x-api-version: 2"
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
 check_header "locations carry a json content-type" '^content-type:.*application/json'
 
 # @spec API-VER-003 — the locations payload does not vary by version. Compared
 # across the versions still served, which is what "every supported version"
 # means: a sunset version answers 410 and has no payload to compare. Add each
 # new version here as it is registered.
-live_versions=(2 3)
+live_versions=(3)
 for v in "${live_versions[@]}"; do
   curl -s -H "x-api-key: $api_key" -H "x-api-version: $v" \
     "${base_url}/hike-locations" > "$body_file.v$v"
@@ -192,9 +200,17 @@ else
 fi
 rm -f "$body_file".v*
 
-# @spec API-RESP-001, API-WIRE-003 — the fixture hike round-trips end to end.
-check_status "fixture hike is served" 200 "/hike/smoke-test" \
-  -H "x-api-key: $api_key" -H "x-api-version: 2"
+# @spec API-VER-008, API-WIN-001 — v3 is current: served, with no deprecation
+# headers, taking the hike's window as query params.
+check_status "fixture hike is served under current v3" 200 \
+  "/hike/smoke-test?start=2026-01-01T08%3A00%3A00-05%3A00&end=2026-01-01T12%3A00%3A00-05%3A00" \
+  -H "x-api-key: $api_key" -H "x-api-version: 3"
+if grep -qiE '^(deprecation|sunset):' "$head_file"; then
+  echo "  FAIL v3 carries deprecation headers" >&2
+  failures=$((failures + 1))
+else
+  echo "  ok   v3 carries no deprecation headers"
+fi
 
 # @spec API-WIRE-005, HIKE-MAP-001 — the map is a presigned URL with an expiry.
 if grep -q '"url":"https://[^"]*X-Amz-Signature=' "$body_file" \
@@ -206,35 +222,14 @@ else
   failures=$((failures + 1))
 fi
 
-# @spec API-VER-006, API-VER-008 — v2 is deprecated: served in full, with its
-# sunset advertised in RFC 8594 headers.
-check_status "hike under deprecated v2" 200 "/hike/smoke-test" \
-  -H "x-api-key: $api_key" -H "x-api-version: 2"
-check_header "v2 carries Deprecation" '^deprecation: true'
-check_header "v2 carries its Sunset date" '^sunset: Wed, 18 Nov 2026 00:00:00 GMT'
-check_header "v2 links the deprecation doc" '^link:.*rel="deprecation"'
-
-# @spec API-VER-008, API-WIN-001 — v3 is current: served, with no deprecation
-# headers. v3 takes the hike's window as query params instead of reading the
-# record's own start/end.
-check_status "hike under current v3" 200 \
-  "/hike/smoke-test?start=2026-01-01T08%3A00%3A00-05%3A00&end=2026-01-01T12%3A00%3A00-05%3A00" \
-  -H "x-api-key: $api_key" -H "x-api-version: 3"
-if grep -qiE '^(deprecation|sunset):' "$head_file"; then
-  echo "  FAIL v3 carries deprecation headers" >&2
-  failures=$((failures + 1))
-else
-  echo "  ok   v3 carries no deprecation headers"
-fi
-
 # @spec API-WIRE-009 — v3 answers in its own shape: a map flagged available, and
-# no v2 `conditions` field.
+# no bare `conditions` field.
 check_body "v3 flags its map as available" '"mapAvailable":true'
 if grep -q '"conditions":' "$body_file"; then
-  echo "  FAIL v3 carries v2's conditions field" >&2
+  echo "  FAIL v3 carries a bare conditions field" >&2
   failures=$((failures + 1))
 else
-  echo "  ok   v3 carries no v2 conditions field"
+  echo "  ok   v3 carries no bare conditions field"
 fi
 
 # @spec API-WIRE-011 — v3 carries no start/end: the client already knows the

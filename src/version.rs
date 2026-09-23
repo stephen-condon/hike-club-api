@@ -25,7 +25,7 @@ pub enum ApiVersion {
 // @spec API-VER-004, API-VER-008, API-VER-009
 const REGISTRY: &[(ApiVersion, &str, Option<&str>)] = &[
     (ApiVersion::V1, "1", Some("Thu, 20 Aug 2026 00:00:00 GMT")),
-    (ApiVersion::V2, "2", Some("Wed, 18 Nov 2026 00:00:00 GMT")),
+    (ApiVersion::V2, "2", Some("Tue, 22 Sep 2026 00:00:00 GMT")),
     (ApiVersion::V3, "3", None),
 ];
 
@@ -138,8 +138,8 @@ mod tests {
 
     // @spec API-VER-008
     #[test]
-    fn v1_is_sunset_v2_is_deprecated_and_v3_is_current() {
-        let now = at(2026, 9, 20);
+    fn v1_and_v2_are_sunset_and_v3_is_current() {
+        let now = at(2026, 9, 22);
         assert_eq!(
             status(ApiVersion::V1, now),
             Status::Sunset {
@@ -148,8 +148,8 @@ mod tests {
         );
         assert_eq!(
             status(ApiVersion::V2, now),
-            Status::Deprecated {
-                sunset: "Wed, 18 Nov 2026 00:00:00 GMT"
+            Status::Sunset {
+                sunset: "Tue, 22 Sep 2026 00:00:00 GMT"
             }
         );
         assert_eq!(status(ApiVersion::V3, now), Status::Current);
@@ -203,16 +203,16 @@ mod tests {
     fn live_versions_exclude_the_sunset_ones() {
         assert_eq!(live_versions(at(2026, 8, 19)), vec!["1", "2", "3"]);
         assert_eq!(live_versions(at(2026, 8, 20)), vec!["2", "3"]);
-        assert_eq!(live_versions(at(2026, 11, 18)), vec!["3"]);
+        assert_eq!(live_versions(at(2026, 9, 22)), vec!["3"]);
     }
 
     // @spec API-VER-005
     #[test]
     fn a_sunset_version_gets_a_body_naming_the_date_and_the_live_versions() {
         assert_eq!(
-            gone_body(ApiVersion::V1, at(2026, 9, 20)).as_deref(),
+            gone_body(ApiVersion::V2, at(2026, 9, 22)).as_deref(),
             Some(
-                "api version 1 was sunset on Thu, 20 Aug 2026 00:00:00 GMT; supported versions: 2, 3"
+                "api version 2 was sunset on Tue, 22 Sep 2026 00:00:00 GMT; supported versions: 3"
             )
         );
     }
@@ -221,8 +221,8 @@ mod tests {
     #[test]
     fn a_version_that_is_not_sunset_gets_no_body() {
         assert_eq!(gone_body(ApiVersion::V1, at(2026, 8, 19)), None);
-        assert_eq!(gone_body(ApiVersion::V2, at(2026, 9, 20)), None);
-        assert_eq!(gone_body(ApiVersion::V3, at(2026, 9, 20)), None);
+        assert_eq!(gone_body(ApiVersion::V2, at(2026, 9, 21)), None);
+        assert_eq!(gone_body(ApiVersion::V3, at(2026, 9, 22)), None);
     }
 
     /// Sunset is not the same as unknown: v1 still parses, so it reaches the
@@ -231,7 +231,7 @@ mod tests {
     #[test]
     fn a_sunset_version_stays_known_and_answers_gone() {
         assert_eq!(parse_version(Some("1")), Ok(ApiVersion::V1));
-        assert!(gone_body(ApiVersion::V1, at(2026, 9, 20)).is_some());
+        assert!(gone_body(ApiVersion::V1, at(2026, 9, 22)).is_some());
         assert_eq!(parse_version(Some("99")), Err(()));
     }
 }

@@ -1,4 +1,3 @@
-use chrono::{DateTime, FixedOffset};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,7 +32,7 @@ pub struct Alert {
     pub message: String,
 }
 
-/// v2 precipitation: probability plus *when* precip is expected across the hike's
+/// Precipitation: probability plus *when* precip is expected across the hike's
 /// local calendar day (times may fall before/after the hike window).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrecipitationV2 {
@@ -49,23 +48,6 @@ pub struct PrecipitationV2 {
     pub ends_at: Option<String>,
 }
 
-/// v2 weather block: start/end temps, precip timing, alerts filtered to the hike
-/// window.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WeatherV2 {
-    #[serde(rename = "startTempF")]
-    pub start_temp_f: f64,
-    #[serde(rename = "endTempF")]
-    pub end_temp_f: f64,
-    pub conditions: String,
-    pub precipitation: PrecipitationV2,
-    #[serde(rename = "heatIndexF")]
-    pub heat_index_f: Option<f64>,
-    #[serde(rename = "windChillF")]
-    pub wind_chill_f: Option<f64>,
-    pub alerts: Vec<Alert>,
-}
-
 /// One entry of the location list stored in R2 at `resources/hike-locations.json`
 /// and served by `GET /hike-locations`. Unknown fields are ignored on read and so
 /// never reach the response.
@@ -75,8 +57,8 @@ pub struct HikeLocation {
     pub full_name: String,
 }
 
-/// v3 weather block: v2's, with conditions reported at both ends of the hike
-/// window so they read the same way as the temperatures beside them.
+/// The weather block: temperatures and conditions reported at both ends of the
+/// hike window so they read the same way as each other.
 // @spec API-WIRE-004
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeatherV3 {
@@ -97,24 +79,15 @@ pub struct WeatherV3 {
 }
 
 /// Raw hike metadata as stored in R2 at `hikes/{id}.json`, where `id` is the
-/// location slug (a `short_name` from the location list) with no
-/// date component — one record per location, rewritten in place when that location
-/// is next scheduled. The record itself carries no date: under API version 3 the
-/// caller supplies the hike's window per request (`API-WIN-*`). `start`/`end`
-/// are optional and read only to serve version 2, which has no window of its
-/// own; a record written without them can still be served under version 3.
-///
-/// `start`/`end` are parsed and validated by `r2::parse_hike_record` before a
-/// value of this type exists, so holding a `Some` means it already checked
-/// out: it parses as RFC 3339 with an offset, and — when both `start` and
-/// `end` are present — `end` is strictly after `start`.
+/// location slug (a `short_name` from the location list) with no date
+/// component — one record per location, rewritten in place when that location
+/// is next scheduled. The record itself carries no date: the caller supplies
+/// the hike's window per request (`API-WIN-*`). The admin still writes
+/// `start`/`end` on every record for its own UI; this schema does not define
+/// them, so they parse as unknown JSON and are dropped (`HIKE-REC-004`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HikeRecord {
     pub id: String,
-    #[serde(default)]
-    pub start: Option<DateTime<FixedOffset>>,
-    #[serde(default)]
-    pub end: Option<DateTime<FixedOffset>>,
     pub meeting: MeetingCoords,
     pub trails: Vec<String>,
     #[serde(rename = "mapKey")]
@@ -125,21 +98,6 @@ pub struct HikeRecord {
 pub struct MeetingCoords {
     pub lat: f64,
     pub lon: f64,
-}
-
-/// The full GET /hike/{id} response under `x-api-version: 2`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HikeResponseV2 {
-    pub id: String,
-    pub start: String,
-    pub end: String,
-    #[serde(rename = "meetingPoint")]
-    pub meeting_point: MeetingPoint,
-    pub trails: Vec<String>,
-    pub map: MapRef,
-    #[serde(rename = "weatherAvailable")]
-    pub weather_available: bool,
-    pub weather: Option<WeatherV2>,
 }
 
 /// The full GET /hike/{id} response under `x-api-version: 3`. `map` is

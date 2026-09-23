@@ -1,4 +1,4 @@
-use crate::models::{Alert, PrecipitationV2, WeatherV2, WeatherV3};
+use crate::models::{Alert, PrecipitationV2, WeatherV3};
 use chrono::{DateTime, FixedOffset, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -327,16 +327,17 @@ fn wind_chill_alert(wind_chill_f: Option<f64>) -> Option<Alert> {
         })
 }
 
-/// Builds the **v2** `WeatherV2` block: start/end temps, precip timing across the
-/// hike's local calendar day, and NWS alerts filtered to those overlapping the
-/// hike window.
-// @spec WX-OUT-003, WX-OUT-004, WX-OUT-008, WX-ALERT-011
-pub fn build_weather_v2(
+/// Builds the `WeatherV3` block: temperatures and conditions paired at both
+/// ends of the window — `startConditions` from the first in-window period,
+/// `endConditions` from the last — precip timing across the hike's local
+/// calendar day, and NWS alerts filtered to those overlapping the hike window.
+// @spec WX-OUT-003, WX-OUT-005, WX-OUT-008, WX-ALERT-011
+pub fn build_weather_v3(
     raw: &RawForecast,
     start: DateTime<Utc>,
     end: DateTime<Utc>,
     offset: FixedOffset,
-) -> Option<WeatherV2> {
+) -> Option<WeatherV3> {
     let window = periods_in_window(&raw.periods, start, end);
     let first = *window.first()?;
     let last = *window.last()?;
@@ -347,8 +348,8 @@ pub fn build_weather_v2(
 
     let mut alerts = Vec::new();
     alerts.extend(precip_alert(max_prob));
-    // v2 keeps only alerts whose [onset, ends] overlaps the hike window; a
-    // missing bound is treated as open-ended (always overlapping on that side).
+    // Only alerts whose [onset, ends] overlaps the hike window; a missing
+    // bound is treated as open-ended (always overlapping on that side).
     alerts.extend(
         raw.alerts
             .iter()
@@ -361,38 +362,15 @@ pub fn build_weather_v2(
     alerts.extend(heat_alert(heat_index_f));
     alerts.extend(wind_chill_alert(wind_chill_f));
 
-    Some(WeatherV2 {
+    Some(WeatherV3 {
         start_temp_f: first.temp_f,
         end_temp_f: last.temp_f,
-        conditions: first.short_forecast.clone(),
+        start_conditions: first.short_forecast.clone(),
+        end_conditions: last.short_forecast.clone(),
         precipitation: precip_timing(&raw.periods, start, offset, max_prob),
         heat_index_f,
         wind_chill_f,
         alerts,
-    })
-}
-
-/// Builds the **v3** `WeatherV3` block: v2's, with conditions paired with the
-/// temperatures at both ends of the window — `startConditions` from the first
-/// in-window period, `endConditions` from the last.
-// @spec WX-OUT-005
-pub fn build_weather_v3(
-    raw: &RawForecast,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-    offset: FixedOffset,
-) -> Option<WeatherV3> {
-    let v2 = build_weather_v2(raw, start, end, offset)?;
-    let last = *periods_in_window(&raw.periods, start, end).last()?;
-    Some(WeatherV3 {
-        start_temp_f: v2.start_temp_f,
-        end_temp_f: v2.end_temp_f,
-        start_conditions: v2.conditions,
-        end_conditions: last.short_forecast.clone(),
-        precipitation: v2.precipitation,
-        heat_index_f: v2.heat_index_f,
-        wind_chill_f: v2.wind_chill_f,
-        alerts: v2.alerts,
     })
 }
 
@@ -507,7 +485,7 @@ mod tests {
     // @spec WX-WIN-002
     #[test]
     fn no_periods_means_no_weather() {
-        assert!(build_weather_v2(&RawForecast::default(), at(8, 0), at(9, 0), UTC).is_none());
+        assert!(build_weather_v3(&RawForecast::default(), at(8, 0), at(9, 0), UTC).is_none());
     }
 
     // @spec WX-SRC-006
@@ -630,7 +608,7 @@ mod tests {
             periods: vec![hour(8, 70.0, 40.0, 5.0, 0), hour(20, 99.0, 90.0, 5.0, 80)],
             alerts: vec![],
         };
-        let w = build_weather_v2(&raw, at(8, 0), at(9, 0), UTC).unwrap();
+        let w = build_weather_v3(&raw, at(8, 0), at(9, 0), UTC).unwrap();
         assert_eq!(w.start_temp_f, 70.0);
         assert_eq!(w.precipitation.probability_pct, 0);
         assert!(w.alerts.is_empty());
@@ -639,7 +617,7 @@ mod tests {
     // @spec WX-ALERT-004
     #[test]
     fn mild_conditions_produce_no_alerts() {
-        let w = build_weather_v2(&one_period(70.0, 40.0, 5.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
+        let w = build_weather_v3(&one_period(70.0, 40.0, 5.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.alerts.is_empty());
         assert!(w.heat_index_f.is_none());
         assert!(w.wind_chill_f.is_none());
@@ -648,7 +626,7 @@ mod tests {
     // @spec WX-ALERT-002, WX-ALERT-006, WX-ALERT-009
     #[test]
     fn hot_humid_triggers_heat_index_alert() {
-        let w = build_weather_v2(&one_period(95.0, 70.0, 5.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
+        let w = build_weather_v3(&one_period(95.0, 70.0, 5.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.heat_index_f.unwrap() > HEAT_INDEX_ALERT_F);
         assert!(w.alerts.iter().any(|a| a.kind == "heat_index"));
     }
@@ -657,7 +635,7 @@ mod tests {
     #[test]
     fn cold_windy_triggers_wind_chill_alert() {
         let w =
-            build_weather_v2(&one_period(20.0, 40.0, 15.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
+            build_weather_v3(&one_period(20.0, 40.0, 15.0, 0), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.wind_chill_f.unwrap() < WIND_CHILL_ALERT_F);
         assert!(w.alerts.iter().any(|a| a.kind == "wind_chill"));
     }
@@ -666,13 +644,13 @@ mod tests {
     #[test]
     fn any_precip_probability_triggers_precip_alert() {
         let w =
-            build_weather_v2(&one_period(70.0, 40.0, 5.0, 20), at(8, 0), at(9, 0), UTC).unwrap();
+            build_weather_v3(&one_period(70.0, 40.0, 5.0, 20), at(8, 0), at(9, 0), UTC).unwrap();
         assert!(w.alerts.iter().any(|a| a.kind == "precip"));
     }
 
-    // @spec WX-OUT-003, WX-OUT-004
+    // @spec WX-OUT-003
     #[test]
-    fn v2_reports_start_and_end_temps() {
+    fn reports_start_and_end_temps() {
         let raw = RawForecast {
             periods: vec![
                 hour(8, 70.0, 40.0, 5.0, 0),
@@ -681,17 +659,17 @@ mod tests {
             ],
             alerts: vec![],
         };
-        let w = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        let w = build_weather_v3(&raw, at(8, 0), at(11, 0), UTC).unwrap();
         assert_eq!(w.start_temp_f, 70.0);
         assert_eq!(w.end_temp_f, 80.0);
-        assert_eq!(w.conditions, "Hour 8");
+        assert_eq!(w.start_conditions, "Hour 8");
     }
 
     /// A hike that starts clear and ends in thunderstorms says so, rather than
-    /// reading as its first hour; everything else matches v2's block.
-    // @spec WX-OUT-005, WX-OUT-003
+    /// reading as its first hour.
+    // @spec WX-OUT-005
     #[test]
-    fn v3_reports_conditions_at_both_ends_of_the_window() {
+    fn reports_conditions_at_both_ends_of_the_window() {
         let raw = RawForecast {
             periods: vec![
                 hour(8, 70.0, 40.0, 5.0, 0),
@@ -704,20 +682,12 @@ mod tests {
         let w = build_weather_v3(&raw, at(8, 0), at(11, 0), UTC).unwrap();
         assert_eq!(w.start_conditions, "Hour 8");
         assert_eq!(w.end_conditions, "Hour 10");
-        let v2 = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
-        assert_eq!(w.start_temp_f, v2.start_temp_f);
-        assert_eq!(w.end_temp_f, v2.end_temp_f);
-        assert_eq!(
-            w.precipitation.probability_pct,
-            v2.precipitation.probability_pct
-        );
-        assert_eq!(w.alerts.len(), v2.alerts.len());
         assert!(build_weather_v3(&RawForecast::default(), at(8, 0), at(9, 0), UTC).is_none());
     }
 
     // @spec WX-OUT-006, WX-OUT-007
     #[test]
-    fn v2_precip_timing_detects_rain_before_the_hike() {
+    fn precip_timing_detects_rain_before_the_hike() {
         // Rain 06:00-08:00 (>=50%), hike 08:00-11:00 dry. Timing spans the pre-hike
         // rain; probabilityPct (during the window) stays 0.
         let raw = RawForecast {
@@ -730,7 +700,7 @@ mod tests {
             ],
             alerts: vec![],
         };
-        let w = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        let w = build_weather_v3(&raw, at(8, 0), at(11, 0), UTC).unwrap();
         assert!(w.precipitation.expected);
         assert_eq!(w.precipitation.probability_pct, 0);
         assert_eq!(
@@ -745,12 +715,12 @@ mod tests {
 
     // @spec WX-OUT-006, WX-OUT-007
     #[test]
-    fn v2_precip_timing_empty_when_no_likely_hours() {
+    fn precip_timing_empty_when_no_likely_hours() {
         let raw = RawForecast {
             periods: vec![hour(8, 70.0, 40.0, 5.0, 30)], // 30% < likely threshold
             alerts: vec![],
         };
-        let w = build_weather_v2(&raw, at(8, 0), at(9, 0), UTC).unwrap();
+        let w = build_weather_v3(&raw, at(8, 0), at(9, 0), UTC).unwrap();
         assert!(!w.precipitation.expected);
         assert!(w.precipitation.starts_at.is_none());
         assert!(w.precipitation.ends_at.is_none());
@@ -758,7 +728,7 @@ mod tests {
 
     // @spec WX-OUT-009
     #[test]
-    fn v2_precip_timing_respects_local_calendar_day() {
+    fn precip_timing_respects_local_calendar_day() {
         // Offset -04:00: hike starts 2026-07-18T12:00Z == 08:00 local (day 07-18).
         let offset = FixedOffset::west_opt(4 * 3600).unwrap();
         let raw = RawForecast {
@@ -788,7 +758,7 @@ mod tests {
         };
         let start = "2026-07-18T12:00:00Z".parse().unwrap();
         let end = "2026-07-18T16:00:00Z".parse().unwrap();
-        let w = build_weather_v2(&raw, start, end, offset).unwrap();
+        let w = build_weather_v3(&raw, start, end, offset).unwrap();
         assert_eq!(
             w.precipitation.starts_at.as_deref(),
             Some("2026-07-18T09:00:00-04:00")
@@ -801,7 +771,7 @@ mod tests {
 
     // @spec WX-ALERT-011
     #[test]
-    fn v2_filters_alerts_to_the_hike_window() {
+    fn filters_alerts_to_the_hike_window() {
         let raw = RawForecast {
             periods: vec![hour(8, 70.0, 40.0, 5.0, 0)],
             alerts: vec![
@@ -810,7 +780,7 @@ mod tests {
                 alert("Open ended", None, None),
             ],
         };
-        let w = build_weather_v2(&raw, at(8, 0), at(9, 0), UTC).unwrap();
+        let w = build_weather_v3(&raw, at(8, 0), at(9, 0), UTC).unwrap();
         let events: Vec<&str> = w
             .alerts
             .iter()
@@ -969,7 +939,7 @@ mod tests {
 
     // @spec WX-SRC-010
     #[test]
-    fn observations_flow_through_the_v2_builder() {
+    fn observations_flow_through_the_weather_builder() {
         // End-to-end: observed periods drive the same builder past hikes will use.
         // Fixture is newest-first (as the real NWS API returns), so this also
         // guards the ascending sort that keeps start/end temps correct.
@@ -997,10 +967,10 @@ mod tests {
             periods: parse_observations(&obs),
             alerts: vec![],
         };
-        let w = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        let w = build_weather_v3(&raw, at(8, 0), at(11, 0), UTC).unwrap();
         assert_eq!(w.start_temp_f, 68.0); // 20C
         assert_eq!(w.end_temp_f, 77.0); // 25C
-        assert_eq!(w.conditions, "Sunny");
+        assert_eq!(w.start_conditions, "Sunny");
     }
 
     /// The client styles alerts by kind and renders them in order, so the order
@@ -1018,7 +988,7 @@ mod tests {
             ],
             alerts: vec![],
         };
-        let weather = build_weather_v2(&raw, at(8, 0), at(11, 0), UTC).unwrap();
+        let weather = build_weather_v3(&raw, at(8, 0), at(11, 0), UTC).unwrap();
         assert_eq!(weather.precipitation.probability_pct, 70);
     }
 
@@ -1029,7 +999,7 @@ mod tests {
             periods: vec![hour(8, 95.0, 70.0, 2.0, 80), hour(9, 20.0, 50.0, 20.0, 0)],
             alerts: vec![alert("Flood Watch", Some(at(8, 0)), Some(at(10, 0)))],
         };
-        let weather = build_weather_v2(&raw, at(8, 0), at(10, 0), UTC).unwrap();
+        let weather = build_weather_v3(&raw, at(8, 0), at(10, 0), UTC).unwrap();
         let kinds: Vec<&str> = weather.alerts.iter().map(|a| a.kind.as_str()).collect();
         assert_eq!(kinds, ["precip", "nws_alert", "heat_index", "wind_chill"]);
     }
@@ -1040,7 +1010,7 @@ mod tests {
     #[test]
     fn probability_is_the_window_max_even_below_the_timing_threshold() {
         let raw = one_period(70.0, 40.0, 5.0, 30);
-        let weather = build_weather_v2(&raw, at(8, 0), at(9, 0), UTC).unwrap();
+        let weather = build_weather_v3(&raw, at(8, 0), at(9, 0), UTC).unwrap();
         assert_eq!(weather.precipitation.probability_pct, 30);
         assert!(!weather.precipitation.expected);
         assert!(weather.precipitation.starts_at.is_none());

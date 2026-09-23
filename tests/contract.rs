@@ -4,8 +4,7 @@
 //! full-runtime contract exercise is left to the post-deploy smoke test instead.
 
 use hike_club_api::models::{
-    Alert, HikeLocation, HikeResponseV2, HikeResponseV3, MapRef, MeetingPoint, PrecipitationV2,
-    WeatherV2, WeatherV3,
+    Alert, HikeLocation, HikeResponseV3, MapRef, MeetingPoint, PrecipitationV2, WeatherV3,
 };
 
 const OPENAPI_YAML: &str = include_str!("../openapi.yaml");
@@ -72,27 +71,27 @@ fn array_validator_for(item: &str) -> jsonschema::Validator {
     jsonschema::validator_for(&schema).expect("openapi.yaml schema must compile")
 }
 
-fn sample_response_v2(weather: Option<WeatherV2>) -> HikeResponseV2 {
-    HikeResponseV2 {
+fn sample_response_v3(weather: Option<WeatherV3>) -> HikeResponseV3 {
+    HikeResponseV3 {
         id: "blue-ridge".to_string(),
-        start: "2026-07-18T08:00:00-04:00".to_string(),
-        end: "2026-07-18T12:00:00-04:00".to_string(),
         meeting_point: MeetingPoint::new(37.6, -79.2),
         trails: vec!["Blue Ridge Loop".to_string()],
-        map: MapRef {
+        map: Some(MapRef {
             url: "https://example.r2.cloudflarestorage.com/map.png?sig=abc".to_string(),
             expires_at: "2026-07-18T09:00:00Z".to_string(),
-        },
+        }),
+        map_available: true,
         weather_available: weather.is_some(),
         weather,
     }
 }
 
-fn sample_weather_v2() -> WeatherV2 {
-    WeatherV2 {
+fn sample_weather_v3() -> WeatherV3 {
+    WeatherV3 {
         start_temp_f: 72.0,
         end_temp_f: 81.0,
-        conditions: "Partly Cloudy".to_string(),
+        start_conditions: "Sunny".to_string(),
+        end_conditions: "Thunderstorms".to_string(),
         precipitation: PrecipitationV2 {
             probability_pct: 40,
             expected: true,
@@ -108,37 +107,19 @@ fn sample_weather_v2() -> WeatherV2 {
     }
 }
 
-// @spec API-WIRE-001, API-WIRE-003, API-WIRE-007
-#[test]
-fn v2_response_with_weather_matches_spec() {
-    let validator = validator_for("HikeResponseV2");
-    let instance = serde_json::to_value(sample_response_v2(Some(sample_weather_v2()))).unwrap();
-    let errors: Vec<_> = validator.iter_errors(&instance).collect();
-    assert!(errors.is_empty(), "schema violations: {errors:?}");
-}
-
-// @spec API-RESP-005, API-WIRE-007
-#[test]
-fn v2_response_without_weather_matches_spec() {
-    let validator = validator_for("HikeResponseV2");
-    let instance = serde_json::to_value(sample_response_v2(None)).unwrap();
-    let errors: Vec<_> = validator.iter_errors(&instance).collect();
-    assert!(errors.is_empty(), "schema violations: {errors:?}");
-}
-
 // @spec API-WIRE-007, WX-OUT-007
 #[test]
-fn v2_precip_timing_nulls_validate() {
+fn precip_timing_nulls_validate() {
     // expected=false with null timestamps must still satisfy the schema.
-    let validator = validator_for("HikeResponseV2");
-    let mut w = sample_weather_v2();
+    let validator = validator_for("HikeResponseV3");
+    let mut w = sample_weather_v3();
     w.precipitation = PrecipitationV2 {
         probability_pct: 0,
         expected: false,
         starts_at: None,
         ends_at: None,
     };
-    let instance = serde_json::to_value(sample_response_v2(Some(w))).unwrap();
+    let instance = serde_json::to_value(sample_response_v3(Some(w))).unwrap();
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
 }
@@ -187,14 +168,23 @@ fn spec_documents_location_list_failures_and_slug_field() {
 
 /// The published document describes the v3 shape — no `start`/`end`, a
 /// nullable map beside `mapAvailable`, and conditions at both ends of the
-/// window — and no longer carries any schema for the sunset v1.
+/// window — and no longer carries any schema for the sunset v1 or v2.
 // @spec API-WIRE-008, API-WIRE-011
 #[test]
-fn openapi_publishes_v3_and_drops_v1() {
+fn openapi_publishes_v3_and_drops_sunset_versions() {
     let openapi: serde_yaml::Value = serde_yaml::from_str(OPENAPI_YAML).unwrap();
     let schemas = &openapi["components"]["schemas"];
-    for v1 in ["HikeResponse", "Weather", "Precipitation"] {
-        assert!(schemas.get(v1).is_none(), "v1 schema {v1} still published");
+    for sunset in [
+        "HikeResponse",
+        "Weather",
+        "Precipitation",
+        "HikeResponseV2",
+        "WeatherV2",
+    ] {
+        assert!(
+            schemas.get(sunset).is_none(),
+            "sunset-version schema {sunset} still published"
+        );
     }
 
     let validator = validator_for("HikeResponseV3");
@@ -227,65 +217,28 @@ fn openapi_publishes_v3_and_drops_v1() {
         "HikeResponseV3 must not require start/end"
     );
 
-    let mut with_v2_conditions = instance.clone();
-    with_v2_conditions["weather"]
+    let mut without_end_conditions = instance.clone();
+    without_end_conditions["weather"]
         .as_object_mut()
         .unwrap()
         .remove("endConditions");
     assert!(
-        !validator.is_valid(&with_v2_conditions),
+        !validator.is_valid(&without_end_conditions),
         "endConditions must be required"
     );
 }
 
-/// The v3 weather block pairs conditions with the temperatures at both ends of
-/// the window, and carries no v2 `conditions` field.
+/// The weather block pairs conditions with the temperatures at both ends of
+/// the window, and carries no bare `conditions` field.
 // @spec API-WIRE-004, API-WIRE-007
 #[test]
-fn v3_weather_block_matches_spec() {
+fn weather_block_matches_spec() {
     let validator = validator_for("WeatherV3");
-    let v2 = sample_weather_v2();
-    let w = WeatherV3 {
-        start_temp_f: v2.start_temp_f,
-        end_temp_f: v2.end_temp_f,
-        start_conditions: "Sunny".to_string(),
-        end_conditions: "Thunderstorms".to_string(),
-        precipitation: v2.precipitation,
-        heat_index_f: v2.heat_index_f,
-        wind_chill_f: v2.wind_chill_f,
-        alerts: v2.alerts,
-    };
+    let w = sample_weather_v3();
     let instance = serde_json::to_value(&w).unwrap();
     let errors: Vec<_> = validator.iter_errors(&instance).collect();
     assert!(errors.is_empty(), "schema violations: {errors:?}");
     assert!(instance.get("conditions").is_none());
-}
-
-fn sample_response_v3(weather: Option<WeatherV3>) -> HikeResponseV3 {
-    let v2 = sample_response_v2(None);
-    HikeResponseV3 {
-        id: v2.id,
-        meeting_point: v2.meeting_point,
-        trails: v2.trails,
-        map: Some(v2.map),
-        map_available: true,
-        weather_available: weather.is_some(),
-        weather,
-    }
-}
-
-fn sample_weather_v3() -> WeatherV3 {
-    let v2 = sample_weather_v2();
-    WeatherV3 {
-        start_temp_f: v2.start_temp_f,
-        end_temp_f: v2.end_temp_f,
-        start_conditions: "Sunny".to_string(),
-        end_conditions: "Thunderstorms".to_string(),
-        precipitation: v2.precipitation,
-        heat_index_f: v2.heat_index_f,
-        wind_chill_f: v2.wind_chill_f,
-        alerts: v2.alerts,
-    }
 }
 
 // @spec API-WIRE-001, API-WIRE-009, API-WIRE-007
